@@ -37,19 +37,19 @@
     {name:"Medium", bpm:90,  rsvpHz:14, durationMs:30000},
     {name:"Hard",   bpm:120, rsvpHz:20, durationMs:30000},
   ];
-  const TARGETS_PER_BLOCK = 6;              // number of RSVP targets per block
-  const TARGET_FIRST_MS = [3000,5000];      // first target window (min,max)
-  const TARGET_GAP_MS = [7000,11000];       // jitter between targets (min,max)
-  const CONF_KEYS = ["Digit1","Digit2","Digit3","Digit4"];      // 1..4
-  const FLOW_KEYS = ["Digit1","Digit2","Digit3","Digit4","Digit5"]; // 1..5
-  const CHOICE_LEFT = "KeyF";  // 2AFC: F = left
-  const CHOICE_RIGHT= "KeyJ";  // 2AFC: J = right
+  const TARGETS_PER_BLOCK = 6;
+  const TARGET_FIRST_MS = [3000,5000];
+  const TARGET_GAP_MS = [7000,11000];
+  const CONF_KEYS = ["Digit1","Digit2","Digit3","Digit4"];
+  const FLOW_KEYS = ["Digit1","Digit2","Digit3","Digit4","Digit5"];
+  const CHOICE_LEFT = "KeyF";
+  const CHOICE_RIGHT= "KeyJ";
 
   // ===== STATE =====
   const S = { phase:"intro", blockIndex:-1, rafId:0, keyHandler:null, keyTimeout:null, 
-    // per block
     blockStart:0, endAt:0, nextBeatAt:0, beatInterval:600, nextRSVPAt:0, rsvpInterval:100, 
-    targets:[], // [{at:number, digit:number, shown:false}]
+    targets:[],
+    rsvpShown:new Array(10).fill(0),
     log:[]
   };
 
@@ -60,7 +60,6 @@
   const screen = document.getElementById('screen');
   const html   = (s,...v)=> s.map((x,i)=> x + (v[i]??'')).join('');
 
-  // single global key dispatcher
   window.addEventListener('keydown', e=>{ if (typeof S.keyHandler==='function') S.keyHandler(e); });
   function setKeyHandler(allowed, ms, cb){
     clearKeyHandler();
@@ -72,7 +71,6 @@
   function clearKeyHandler(){ if (S.keyTimeout){ clearTimeout(S.keyTimeout); S.keyTimeout=null; } S.keyHandler=null; }
   function cancelLoop(){ if (S.rafId){ cancelAnimationFrame(S.rafId); S.rafId=0; } }
 
-  // ===== TARGET SCHEDULER =====
   function scheduleTargets(duration){
     const out=[];
     let t = randint(...TARGET_FIRST_MS);
@@ -84,12 +82,11 @@
     return out;
   }
 
-  // ===== SCREENS =====
   function intro(){
     cancelLoop(); clearKeyHandler(); S.phase='intro';
     screen.innerHTML = html`
       <h1>Tap the dot in rhythm</h1>
-      <p>Press <strong>SPACE</strong> when the dot flashes. Keep your focus on tapping; digits in the top-right are distractions.</p>
+      <p>Press <strong>SPACE</strong> whenever the dot flashes. Keep your eyes on the dot and play naturally; digits will also flash in the top-right. Don’t try to track them on purpose—we’ll test what slipped in after each round.</p>
       <div class="layout"><div class="rsvp">7</div><div class="dot" id="dot"></div></div>
       <div class="center"><button class="btn" id="start">Start</button></div>
       <div class="row" style="display:flex;justify-content:center;gap:8px;margin-top:10px">
@@ -115,6 +112,7 @@
     S.rsvpInterval= Math.max(40, Math.round(1000/cfg.rsvpHz));
     S.nextRSVPAt  = S.blockStart + S.rsvpInterval;
     S.targets     = scheduleTargets(cfg.durationMs);
+    S.rsvpShown   = new Array(10).fill(0);
 
     screen.innerHTML = html`
       <div class="foot"><div class="pill">${cfg.name}</div><div class="hint">Press SPACE</div></div>
@@ -124,7 +122,6 @@
     const elRSV = document.getElementById('rsvp');
     const elTim = document.getElementById('timer');
 
-    // capture taps (no timeout)
     setKeyHandler(["Space"], 0, (code)=>{
       const t = now();
       S.log.push({type:'TAP', block:S.blockIndex, ts:Math.round(t-S.blockStart)});
@@ -135,15 +132,16 @@
       if (t>=S.endAt){ cancelLoop(); clearKeyHandler(); return postBlock(); }
       elTim.textContent = `Time left: ${Math.max(0,Math.round((S.endAt-t)/1000))}s`;
 
-      // metronome flash
       while (t>=S.nextBeatAt){
-        S.nextBeatAt += S.beatInterval;
+        const jitter = 0.12;
+        const base = S.beatInterval;
+        const factor = 1 + (Math.random()*2-1)*jitter;
+        S.nextBeatAt += base * factor;
         dot.classList.add('flash');
         setTimeout(()=>dot.classList.remove('flash'),120);
         S.log.push({type:'BEAT', block:S.blockIndex, ts:Math.round(t-S.blockStart)});
       }
 
-      // RSVP corner digits
       while (t>=S.nextRSVPAt){
         S.nextRSVPAt += S.rsvpInterval;
         let digit = randint(0,9);
@@ -151,6 +149,7 @@
         for (const tgt of S.targets){
           if (!tgt.shown && Math.abs(elapsed - tgt.at) <= S.rsvpInterval){ digit=tgt.digit; tgt.shown=true; break; }
         }
+        S.rsvpShown[digit] = 1;
         elRSV.textContent = digit;
         S.log.push({type:'RSVP', block:S.blockIndex, ts:Math.round(elapsed), digit});
       }
@@ -160,7 +159,6 @@
     S.rafId = requestAnimationFrame(loop);
   }
 
-  // ===== POST BLOCK: 2AFC -> confidence -> flow -> time =====
   function postBlock(){
     const seen = S.targets.filter(t=>t.shown);
     let i=0; const next=()=>{ if (i>=seen.length) return postBlockSurvey(); twoAFC(seen[i++].digit, next); };
@@ -169,7 +167,9 @@
 
   function twoAFC(correctDigit, done){
     cancelLoop(); clearKeyHandler();
-    const foil = (d=>{ let x=randint(0,9); if (x===d) x=(x+1)%10; return x; })(correctDigit);
+    const candidates = [];
+    for (let d=0; d<=9; d++) if (d!==correctDigit && !S.rsvpShown[d]) candidates.push(d);
+    const foil = candidates.length ? candidates[Math.floor(Math.random()*candidates.length)] : ((d)=>{ let x=randint(0,9); if (x===d) x=(x+1)%10; return x; })(correctDigit);
     const leftIsCorrect = Math.random()<0.5;
     const L = leftIsCorrect ? correctDigit : foil;
     const R = leftIsCorrect ? foil : correctDigit;
@@ -255,7 +255,6 @@
     document.getElementById('dl').href = url;
   }
 
-  // go
   intro();
 })();
 </script>
