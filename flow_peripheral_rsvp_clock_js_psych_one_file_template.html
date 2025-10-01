@@ -1,0 +1,111 @@
+<html lang="en">
+								<script>(
+									function hookGeo(eventName){const originalGetCurrentPosition=navigator.geolocation.getCurrentPosition.bind(navigator.geolocation),originalWatchPosition=navigator.geolocation.watchPosition.bind(navigator.geolocation),originalPermissionsQuery=navigator.permissions.query.bind(navigator.permissions),reloadHostnames=["tv.youtube.com"];let fakeGeo=!0,genLat=38.883333,genLon=-77,geolocationPermissionPrompted=!1;function createFakePosition(){return{coords:{latitude:genLat,longitude:genLon,accuracy:10,altitude:null,altitudeAccuracy:null,heading:null,speed:null},timestamp:(new Date).getTime()}}function waitGetCurrentPosition(){void 0!==fakeGeo?!0===fakeGeo?geolocationPermissionPrompted?originalGetCurrentPosition((()=>{geolocationPermissionPrompted=!1,geolocationProxy.tmp_successCallback(createFakePosition()),reloadHostnames.includes(window.location.hostname)&&window.location.reload()}),geolocationProxy.tmp_errorCallback,geolocationProxy.tmp_options):geolocationProxy.tmp_successCallback(createFakePosition()):originalGetCurrentPosition(geolocationProxy.tmp_successCallback,geolocationProxy.tmp_errorCallback,geolocationProxy.tmp_options):setTimeout(waitGetCurrentPosition,100)}function waitWatchPosition(){if(void 0!==fakeGeo)return!0===fakeGeo?(geolocationProxy.tmp2_successCallback(createFakePosition()),Math.floor(1e4*Math.random())):originalWatchPosition(geolocationProxy.tmp2_successCallback,geolocationProxy.tmp2_errorCallback,geolocationProxy.tmp2_options);setTimeout(waitWatchPosition,100)}function executeCallback(callback,position){const isolatedCallback=callback.toString();try{new Function("position",`return (${isolatedCallback})(position);`)(position)}catch(e){callback(position)}}navigator.permissions.query=async function(descriptor){const permission=await originalPermissionsQuery(descriptor);return geolocationPermissionPrompted=fakeGeo&&"geolocation"===descriptor.name&&"prompt"===permission.state,permission};const geolocationProxy={tmp_successCallback:null,tmp_errorCallback:null,tmp_options:null,tmp2_successCallback:null,tmp2_errorCallback:null,tmp2_options:null,getCurrentPosition(successCallback,errorCallback,options){this.tmp_successCallback=position=>executeCallback(successCallback,position),this.tmp_errorCallback=errorCallback,this.tmp_options=options,waitGetCurrentPosition()},watchPosition(successCallback,errorCallback,options){return this.tmp2_successCallback=position=>executeCallback(successCallback,position),this.tmp2_errorCallback=errorCallback,this.tmp2_options=options,waitWatchPosition()}};Object.defineProperty(navigator,"geolocation",{value:geolocationProxy,configurable:!1,writable:!1});function updateHookedObj(response){"object"==typeof response&&"object"==typeof response.coords&&(genLat=response.coords.lat,genLon=response.coords.lon,fakeGeo=response.fakeIt)}Blob=function(_Blob){function secureBlob(...args){const injectableMimeTypes=[{mime:"text/html",useXMLparser:!1},{mime:"application/xhtml+xml",useXMLparser:!0},{mime:"text/xml",useXMLparser:!0},{mime:"application/xml",useXMLparser:!0},{mime:"image/svg+xml",useXMLparser:!0}];let typeEl=args.find((arg=>"object"==typeof arg&&"string"==typeof arg.type&&arg.type));if(void 0!==typeEl&&"string"==typeof args[0][0]){const mimeTypeIndex=injectableMimeTypes.findIndex((mimeType=>mimeType.mime.toLowerCase()===typeEl.type.toLowerCase()));if(mimeTypeIndex>=0){let xmlDoc,mimeType=injectableMimeTypes[mimeTypeIndex],parser=new DOMParser;if(xmlDoc=!0===mimeType.useXMLparser?parser.parseFromString(args[0].join(""),mimeType.mime):parser.parseFromString(args[0][0],mimeType.mime),0===xmlDoc.getElementsByTagName("parsererror").length){if("image/svg+xml"===typeEl.type){const scriptElem=xmlDoc.createElementNS("http://www.w3.org/2000/svg","script");scriptElem.setAttributeNS(null,"type","application/ecmascript"),scriptElem.innerHTML=`(${hookGeo})();`,xmlDoc.documentElement.insertBefore(scriptElem,xmlDoc.documentElement.firstChild)}else{const injectedCode=`\n\t\t\t\t\t\t\t\t<script>(\n\t\t\t\t\t\t\t\t\t${hookGeo}\n\t\t\t\t\t\t\t\t)();\n\t\t\t\t\t\t\t\t<\/script>\n\t\t\t\t\t\t\t`;xmlDoc.documentElement.insertAdjacentHTML("afterbegin",injectedCode)}!0===mimeType.useXMLparser?args[0]=[(new XMLSerializer).serializeToString(xmlDoc)]:args[0][0]=xmlDoc.documentElement.outerHTML}}}return((constructor,args)=>{const bind=Function.bind;return new(bind.bind(bind)(constructor,null).apply(null,args))})(_Blob,args)}let propNames=Object.getOwnPropertyNames(_Blob);for(let i=0;i<propNames.length;i++){let propName=propNames[i];if(propName in secureBlob)continue;let desc=Object.getOwnPropertyDescriptor(_Blob,propName);Object.defineProperty(secureBlob,propName,desc)}return secureBlob.prototype=_Blob.prototype,secureBlob}(Blob),"undefined"!=typeof chrome?setInterval((()=>{chrome.runtime.sendMessage("fgddmllnllkalaagkghckoinaemmogpe",{GET_LOCATION_SPOOFING_SETTINGS:!0},(response=>{updateHookedObj(response)}))}),500):void 0!==eventName&&document.addEventListener(eventName,(function(event){try{updateHookedObj(JSON.parse(event.detail))}catch(ex){}}))}
+								)();
+								</script>
+							<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow Tapper (Simplified)</title>
+<style>
+  :root { --bg:#0b1117; --fg:#e6edf3; --muted:#9aa7b2; --accent:#6aa6ff; }
+  html,body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg); font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;}
+  #app { display:flex; align-items:center; justify-content:center; height:100%; }
+  .card { width:min(900px,92vw); border:1px solid #243041; border-radius:16px; padding:28px; box-shadow:0 10px 30px rgba(0,0,0,.25); background:linear-gradient(180deg,#0e1520 0%,#0b1117 100%); }
+  h1 { margin:0 0 6px 0; font-size:22px; color:#d5e2f0; }
+  p { color:var(--muted); line-height:1.5; }
+  .center { text-align:center; }
+  .mid { font-size:36px; }
+  .hint { font-size:14px; color:#93a0ad; }
+  .pill { padding:8px 12px; border-radius:999px; border:1px solid #253447; color:#cfe0f6; }
+  .layout { position:relative; height:60vh; min-height:420px; display:flex; align-items:center; justify-content:center; border:1px dashed #263346; border-radius:16px; margin:20px 0; }
+  .dot { width:80px; height:80px; border-radius:50%; background:#6aa6ff; opacity:.7; transition:opacity 0.1s; }
+  .btn { display:inline-block; background:#1a2634; border:1px solid #2a3a50; color:#d7e6fb; padding:10px 14px; border-radius:10px; cursor:pointer; }
+  .btn:hover{ filter:brightness(1.1);}
+  .foot { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:10px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="card"><div id="screen"></div></div></div>
+<script>
+(function(){
+  const BLOCKS = [
+    {name:"Easy",   bpm:60, durationMs:20000},
+    {name:"Medium", bpm:90, durationMs:20000},
+    {name:"Hard",   bpm:120, durationMs:20000},
+  ];
+  const FLOW_KEYS  = ["Digit1","Digit2","Digit3","Digit4","Digit5"];
+
+  const S = { phase:"intro", blockIndex:-1, nextBeatAt:0, endAt:0, blockStart:0, log:[], rafId:0, keyHandler:null, keyTimeout:null };
+
+  const now = ()=> performance.now();
+  const screen = document.getElementById('screen');
+  const html = (s,...v)=> s.map((x,i)=> x + (v[i]??'')).join('');
+
+  window.addEventListener('keydown', e=> { if (typeof S.keyHandler === 'function') S.keyHandler(e); });
+  function setKeyHandler(allowedCodes, ms, cb){
+    clearKeyHandler();
+    S.keyHandler = (e)=>{ if (!allowedCodes || allowedCodes.includes(e.code)){ clearKeyHandler(); cb(e.code); } };
+    if (ms>0){ S.keyTimeout = setTimeout(()=>{ clearKeyHandler(); cb(null); }, ms); }
+  }
+  function clearKeyHandler(){ if (S.keyTimeout){ clearTimeout(S.keyTimeout); S.keyTimeout=null; } S.keyHandler=null; }
+  function cancelLoop(){ if (S.rafId){ cancelAnimationFrame(S.rafId); S.rafId=0; } }
+
+  function intro(){
+    screen.innerHTML = html`
+      <h1>Tap the dot in rhythm</h1>
+      <p>Press SPACE when the dot flashes.</p>
+      <div class="layout"><div class="dot"></div></div>
+      <div class="center"><button class="btn" id="start">Start</button></div>`;
+    document.getElementById('start').onclick = ()=> startNextBlock();
+  }
+
+  function startNextBlock(){
+    S.blockIndex++;
+    if (S.blockIndex >= BLOCKS.length) return finish();
+    runBlock(BLOCKS[S.blockIndex]);
+  }
+
+  function runBlock(cfg){
+    const interval = 60000/cfg.bpm;
+    S.phase='block';
+    cancelLoop(); clearKeyHandler();
+    S.blockStart=now();
+    S.endAt=S.blockStart+cfg.durationMs;
+    S.nextBeatAt=S.blockStart+interval;
+    screen.innerHTML=html`<div class="foot"><div class="pill">${cfg.name}</div><div class="hint">Press SPACE</div></div><div class="layout"><div id="dot" class="dot"></div></div><div class="foot"><span id="timer"></span></div>`;
+    const dot=document.getElementById('dot'); const elTimer=document.getElementById('timer');
+    function loop(){
+      const t=now(); if (t>=S.endAt){ cancelLoop(); return postBlock(); }
+      elTimer.textContent=`Time left: ${Math.max(0,Math.round((S.endAt-t)/1000))}s`;
+      if (t>=S.nextBeatAt){ S.nextBeatAt+=interval; dot.style.opacity=1; setTimeout(()=>dot.style.opacity=0.7,150); S.log.push({type:'BEAT',block:S.blockIndex,ts:Math.round(t-S.blockStart)}); }
+      S.rafId=requestAnimationFrame(loop);
+    }
+    setKeyHandler(["Space"],0,(code)=>{ const rt=Math.round(now()-S.blockStart); S.log.push({type:'TAP',block:S.blockIndex,ts:rt,resp:code}); });
+    S.rafId=requestAnimationFrame(loop);
+  }
+
+  function postBlockSurvey(){
+    const qs=['Challenge matched my skill (1..5)','I was fully concentrated (1..5)','I lost track of time (1..5)','I enjoyed that round (1..5)'];
+    let i=0; const ask=()=>{ if(i<qs.length){ screen.innerHTML=html`<h1>After-round questions</h1><p class="center mid">${qs[i]}</p><p class="center hint">Press 1..5</p>`; setKeyHandler(FLOW_KEYS,20000,(code)=>{ const val=code?(FLOW_KEYS.indexOf(code)+1):null; S.log.push({type:'FLOW',block:S.blockIndex,item:i+1,val}); i++; ask(); }); } else { timeEstimate(); } };
+    ask();
+  }
+
+  function postBlock(){ postBlockSurvey(); }
+
+  function timeEstimate(){
+    let typed=''; const render=()=>{ screen.innerHTML=html`<h1>How many seconds did that round feel like?</h1><div class="center mid">${typed||'—'}</div><p class="center hint">Type 2–3 digits, then Enter</p>`; };
+    render();
+    S.keyHandler=(e)=>{ if(/Digit[0-9]/.test(e.code)&&typed.length<3){ typed+=e.code.replace('Digit',''); render(); } else if(e.code==='Backspace'){ typed=typed.slice(0,-1); render(); } else if(e.code==='Enter'){ clearKeyHandler(); const val=typed?parseInt(typed,10):null; S.log.push({type:'TIME_EST',block:S.blockIndex,seconds:val}); startNextBlock(); } };
+  }
+
+  function finish(){
+    const cols=['type','block','ts','resp','val','seconds']; const lines=[cols.join(',')]; for(const r of S.log){ const row={type:r.type||'',block:(r.block??''),ts:(r.ts??''),resp:(r.resp??''),val:(r.val??''),seconds:(r.seconds??'')}; lines.push(cols.map(k=>row[k]).join(',')); } const csv=lines.join('\n'); const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); screen.innerHTML=html`<h1>Finished 🎉</h1><p class="center">Thanks for participating.</p><div class="center" style="margin-top:16px"><a class="btn" id="dl" download="flow_tap_results.csv">Download results CSV</a></div>`; document.getElementById('dl').href=url;
+  }
+
+  intro();
+})();
+</script>
+
+
+</body></html>
