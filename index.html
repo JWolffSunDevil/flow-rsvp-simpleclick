@@ -16,7 +16,6 @@
   .hint { font-size:14px; color:#93a0ad; }
   .pill { padding:8px 12px; border-radius:999px; border:1px solid #253447; color:#cfe0f6; }
   .layout { position:relative; height:60vh; min-height:420px; display:flex; align-items:center; justify-content:center; border:1px dashed #263346; border-radius:16px; margin:20px 0; }
-  /* RSVP number centered above the dot */
   .rsvp { position:absolute; bottom:calc(50% + 140px); left:50%; transform:translateX(-50%); font-size:72px; color:#b7c3cf; opacity:.38; user-select:none; }
   .dot { width:84px; height:84px; border-radius:50%; background:#6aa6ff; opacity:.35; transition:transform .08s, opacity .08s; transform:scale(1); }
   .dot.flash { opacity:.95; transform:scale(1.08); }
@@ -51,7 +50,7 @@
   const LEFT_KEY  = "KeyF";           // time 2AFC: Left
   const RIGHT_KEY = "KeyJ";           // time 2AFC: Right
 
-  // Likert label sets
+  // Likert labels
   const LABELS_CONF_5 = ["1 · Not at all","2 · Slightly","3 · Somewhat","4 · Mostly","5 · Very"];
   const LABELS_DIFF_5 = ["1 · Very easy","2 · Easy","3 · Moderate","4 · Hard","5 · Very hard"];
   const LABELS_CONC_5 = ["1 · Extremely concentrated","2 · Very","3 · Moderately","4 · Slightly","5 · Not at all"];
@@ -67,6 +66,7 @@
     targets: [],                    // [{at, digit, shown}]
     rsvpShown: new Array(21).fill(0), // digits 1..20 seen (index 0 unused)
     transitioning: false,
+    roundMeta: {}, // roundIndex -> {nTargetsShown}
     log: [],
   };
 
@@ -126,15 +126,9 @@
     cancelLoop(); clearKeyHandler(); S.phase='intro';
     screen.innerHTML = html`
       <h1>Tap the dot in rhythm</h1>
-      <p>Press <strong>SPACE</strong> whenever the dot flashes. Keep your eyes on the dot and play naturally; numbers will also flash above the dot. We'll test whether you can recall numbers shown after the game. This test will measure intelligence.</p>
+      <p>Press <strong>SPACE</strong> whenever the dot flashes. Keep your eyes on the dot and play naturally; numbers will also flash above the dot. We'll test whether you can recall numbers shown after the game. This test will measure intelligence. <br><br><em>This game has three rounds, and should take less than 10 minutes to complete. Thank you for your full participation.</em></p>
       <div class="layout"><div class="rsvp">17</div><div class="dot" id="dot"></div></div>
-      <div class="center"><button class="btn" id="start">Start</button></div>
-      <div class="row">
-        <span class="pill">After each round: 1× number recognition (Yes/No)</span>
-        <span class="pill">Confidence & Difficulty 1–5</span>
-        <span class="pill">Concentration & Lost-time 1–5</span>
-        <span class="pill">Time 2AFC</span>
-      </div>`;
+      <div class="center"><button class="btn" id="start">Start</button></div>`;
     document.getElementById('start').onclick = ()=> startNextRound();
   }
 
@@ -217,6 +211,11 @@
 
   // ===== AFTER ROUND =====
   function postRound(cfg, runDuration){
+    // compute how many scheduled targets actually showed this round
+    const nTargetsShown = new Set(S.targets.filter(t=>t.shown).map(t=>t.digit)).size;
+    S.roundMeta[S.roundIndex] = { nTargetsShown };
+    S.log.push({pid:S.pid, type:'ROUND_META', round:S.roundIndex, roundName:cfg.name, nTargetsShown});
+
     S.log.push({pid:S.pid, type:'ROUND_END', round:S.roundIndex, roundName:cfg.name,
                 ts:Math.round(now()-S.roundStart)});
 
@@ -364,20 +363,26 @@
     const urlEvents = URL.createObjectURL(new Blob([csvEvents],{type:'text/csv'}));
     const fnameEvents = `flow_rsvp_events_${S.pid||'anon'}.csv`;
 
-    // 2) Round Summary CSV (wide, one row per round)
-    const sumCols = ["pid","round","roundName","plannedSec","actualSec","nTaps","nBeats","nTargetsShown","probe_digit","probe_isTarget","probe_respYes","probe_correct","confidence","difficulty","concentration","lost_time","time_left","time_right","time_choice_left","time_chosen","time_correct"];
+    // 2) Round Summary CSV (clear names)
+    const sumCols = [
+      "participant_id","round_index","round_name",
+      "planned_duration_seconds","actual_duration_seconds",
+      "taps_count","beats_count","n_targets_shown",
+      "recognition_digit","recognition_was_target","recognition_yes","recognition_correct",
+      "confidence_1to5","difficulty_1to5","concentration_1to5","lost_time_1to5",
+      "time_left_option_seconds","time_right_option_seconds","time_choice_left","time_chosen_seconds","time_correct"
+    ];
     const sumLines = [sumCols.join(",")];
 
-    const rounds = [0,1,2];
-    for (const rIdx of rounds){
+    const allRounds = Array.from(new Set(S.log.map(x=>x.round))).filter(r=>r!==undefined && r!==null);
+    for (const rIdx of allRounds){
       const rows = S.log.filter(x=>x.round===rIdx);
-      if (rows.length===0) continue;
       const roundName = rows.find(x=>x.roundName)?.roundName || "";
       const plannedMs = (rows.find(x=>x.type==="ROUND_START")?.plannedMs) || "";
       const actualMs  = (rows.find(x=>x.type==="ROUND_END")?.ts) || "";
-      const nTaps  = rows.filter(x=>x.type==="TAP").length;
-      const nBeats = rows.filter(x=>x.type==="BEAT").length;
-      const nTargetsShown = new Set(S.targets.filter(t=>t.shown && S.log.find(rr=>rr.round===rIdx))).size; // rough count
+      const tapsCount  = rows.filter(x=>x.type==="TAP").length;
+      const beatsCount = rows.filter(x=>x.type==="BEAT").length;
+      const nTargetsShown = rows.find(x=>x.type==="ROUND_META")?.nTargetsShown ?? "";
 
       const probe = rows.find(x=>x.type==="PROBE");
       const conf  = rows.find(x=>x.type==="CONF")?.confidence ?? "";
@@ -398,7 +403,7 @@
         roundName,
         plannedMs?Math.round(plannedMs/1000):"",
         actualMs?Math.round(actualMs/1000):"",
-        nTaps, nBeats, nTargetsShown,
+        tapsCount, beatsCount, nTargetsShown,
         probe?.probe_digit ?? "",
         probe?.is_target ?? "",
         probe?.resp_yes ?? "",
@@ -412,7 +417,6 @@
     const urlSummary = URL.createObjectURL(new Blob([csvSummary],{type:'text/csv'}));
     const fnameSummary = `flow_rsvp_summary_${S.pid||'anon'}.csv`;
 
-    // UI
     screen.innerHTML = `
       <h1>Finished 🎉</h1>
       <p class="center">Thanks for participating.</p>
