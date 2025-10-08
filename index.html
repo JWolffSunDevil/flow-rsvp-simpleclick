@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Flow Tapper + Peripheral RSVP (Yes/No + Confidence 5pt + Difficulty)</title>
+<title>Flow Tapper + Peripheral RSVP (Yes/No + Likerts + Time 2AFC)</title>
 <style>
   :root { --bg:#0b1117; --fg:#e6edf3; --muted:#9aa7b2; --accent:#6aa6ff; }
   html,body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg); font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;}
@@ -16,7 +16,7 @@
   .hint { font-size:14px; color:#93a0ad; }
   .pill { padding:8px 12px; border-radius:999px; border:1px solid #253447; color:#cfe0f6; }
   .layout { position:relative; height:60vh; min-height:420px; display:flex; align-items:center; justify-content:center; border:1px dashed #263346; border-radius:16px; margin:20px 0; }
-  /* RSVP number centered and raised above the dot */
+  /* RSVP number centered above the dot */
   .rsvp { position:absolute; bottom:calc(50% + 140px); left:50%; transform:translateX(-50%); font-size:72px; color:#b7c3cf; opacity:.38; user-select:none; }
   .dot { width:84px; height:84px; border-radius:50%; background:#6aa6ff; opacity:.35; transition:transform .08s, opacity .08s; transform:scale(1); }
   .dot.flash { opacity:.95; transform:scale(1.08); }
@@ -34,14 +34,11 @@
 <script>
 (function(){
   // ===== CONFIG =====
-  // Three rounds: Easy, Medium, Hard
-  // RSVP is very fast: ~40ms, ~29ms, ~22ms intervals respectively
   const ROUNDS = [
-    {name:"Easy",   bpm:60,  rsvpHz:25, targetPool:[3,8,12,17,20]},  // scheduled real targets (from 1..20 overall)
+    {name:"Easy",   bpm:60,  rsvpHz:25, targetPool:[3,8,12,17,20]},
     {name:"Medium", bpm:90,  rsvpHz:35, targetPool:[2,5,11,14,19]},
     {name:"Hard",   bpm:120, rsvpHz:45, targetPool:[1,6,9,15,18]},
   ];
-
   const ROUND_DURATION_RANGE_MS = [15000, 60000]; // 15..60s
   const TARGETS_PER_ROUND = 6;
   const TARGET_FIRST_MS   = [3000,5000];
@@ -50,13 +47,15 @@
   // Keys
   const YES_KEY   = "KeyF";           // recognition: Yes
   const NO_KEY    = "KeyJ";           // recognition: No
-  const LIKERT5   = ["Digit1","Digit2","Digit3","Digit4","Digit5"]; // 1..5 (for all after-round)
-  const LEFT_KEY  = "KeyF";           // 2AFC time: Left
-  const RIGHT_KEY = "KeyJ";           // 2AFC time: Right
+  const LIKERT5   = ["Digit1","Digit2","Digit3","Digit4","Digit5"]; // 1..5 for all after-round questions
+  const LEFT_KEY  = "KeyF";           // time 2AFC: Left
+  const RIGHT_KEY = "KeyJ";           // time 2AFC: Right
 
-  // Likert label sets (shared UI)
+  // Likert label sets
   const LABELS_CONF_5 = ["1 · Not at all","2 · Slightly","3 · Somewhat","4 · Mostly","5 · Very"];
   const LABELS_DIFF_5 = ["1 · Very easy","2 · Easy","3 · Moderate","4 · Hard","5 · Very hard"];
+  const LABELS_CONC_5 = ["1 · Extremely concentrated","2 · Very","3 · Moderately","4 · Slightly","5 · Not at all"];
+  const LABELS_LOST_5 = ["1 · Not at all","2 · Slightly","3 · Somewhat","4 · Mostly","5 · Completely"];
 
   // ===== STATE =====
   const S = {
@@ -74,7 +73,7 @@
   // ===== UTILS =====
   const now = ()=>performance.now();
   const randint = (a,b)=> Math.floor(Math.random()*(b-a+1))+a;
-  const choice = arr => arr[Math.floor(Math.random()*(arr.length))];
+  const choice  = arr => arr[Math.floor(Math.random()*arr.length)];
   function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
 
   const screen = document.getElementById('screen');
@@ -131,10 +130,10 @@
       <div class="layout"><div class="rsvp">17</div><div class="dot" id="dot"></div></div>
       <div class="center"><button class="btn" id="start">Start</button></div>
       <div class="row">
-        <span class="pill">After each round: number recognition (Yes/No)</span>
-        <span class="pill">Confidence 1–5</span>
-        <span class="pill">Difficulty 1–5</span>
-        <span class="pill">Flow + time 2AFC</span>
+        <span class="pill">After each round: 1× number recognition (Yes/No)</span>
+        <span class="pill">Confidence & Difficulty 1–5</span>
+        <span class="pill">Concentration & Lost-time 1–5</span>
+        <span class="pill">Time 2AFC</span>
       </div>`;
     document.getElementById('start').onclick = ()=> startNextRound();
   }
@@ -151,7 +150,7 @@
   function runRound(cfg){
     cancelLoop(); clearKeyHandler(); S.phase='round';
     S.roundStart = now();
-    const runDuration = randint(ROUND_DURATION_RANGE_MS[0], ROUND_DURATION_RANGE_MS[1]);
+    const runDuration = randint(...ROUND_DURATION_RANGE_MS);
     S.endAt      = S.roundStart + runDuration;
 
     S.beatInterval = 60000/cfg.bpm;
@@ -183,7 +182,6 @@
       const t = now();
       if (t>=S.endAt){ cancelLoop(); clearKeyHandler(); return postRound(cfg, runDuration); }
 
-      // Jittered beat flashes (±35%)
       while (t>=S.nextBeatAt){
         const jitter = 0.35;
         const base = S.beatInterval;
@@ -194,12 +192,12 @@
         S.log.push({pid:S.pid, type:'BEAT', round:S.roundIndex, roundName:cfg.name, ts:Math.round(t-S.roundStart)});
       }
 
-      // RSVP digits 1..20 (force scheduled targets when near their time)
       while (t>=S.nextRSVPAt){
         S.nextRSVPAt += S.rsvpInterval;
         let digit = randint(1,20);
         const elapsed = t - S.roundStart;
 
+        // force scheduled targets near their time
         for (const tgt of S.targets){
           if (!tgt.shown && Math.abs(elapsed - tgt.at) <= S.rsvpInterval){
             digit = tgt.digit; tgt.shown=true; break;
@@ -223,30 +221,19 @@
                 ts:Math.round(now()-S.roundStart)});
 
     // Unique target digits that actually showed
-    const shownTargets = [];
-    for (const t of S.targets){ if (t.shown) shownTargets.push(t.digit); }
-    const uniqTargets = Array.from(new Set(shownTargets));
-
+    const uniqTargets = Array.from(new Set(S.targets.filter(t=>t.shown).map(t=>t.digit)));
     // Foil pool = digits 1..20 that did NOT appear at all
-    const unseen = [];
-    for (let d=1; d<=20; d++){ if (!S.rsvpShown[d]) unseen.push(d); }
+    const unseen = []; for (let d=1; d<=20; d++){ if (!S.rsvpShown[d]) unseen.push(d); }
     if (unseen.length===0){
       for (let d=1; d<=20; d++){ if (!uniqTargets.includes(d)) unseen.push(d); }
     }
 
-    // Build exactly TWO Yes/No probes: one target (if any) + one foil
-    const probes = [];
-    if (uniqTargets.length>0) probes.push({digit: choice(uniqTargets), isTarget:true});
-    if (unseen.length>0)      probes.push({digit: choice(unseen), isTarget:false});
-    while (probes.length<2)   probes.push({digit: unseen.length?choice(unseen):randint(1,20), isTarget:false});
+    // Exactly ONE probe: prefer a real target, else a true foil
+    let probe;
+    if (uniqTargets.length>0) probe = {digit: choice(uniqTargets), isTarget:true};
+    else                      probe = {digit: choice(unseen.length?unseen:[randint(1,20)]), isTarget:false};
 
-    shuffle(probes);
-    let idx = 0;
-    const next = ()=> {
-      if (idx >= probes.length) return afterRoundSequence(cfg, runDuration);
-      yesNoProbe(probes[idx++], next, cfg);
-    };
-    next();
+    yesNoProbe(probe, ()=> afterRoundSequence(cfg, runDuration), cfg);
   }
 
   function yesNoProbe(probe, done, cfg){
@@ -271,7 +258,7 @@
     });
   }
 
-  // ===== UNIFIED AFTER-ROUND LIKERT UI =====
+  // ===== Reusable Likert UI =====
   function askLikert(title, labels, keyset, logType, valueField, next){
     cancelLoop(); clearKeyHandler();
     screen.innerHTML = html`
@@ -284,24 +271,20 @@
     setKeyHandler(keyset, 20000, code=>{
       const v = code ? (keyset.indexOf(code)+1) : null;
       const rt = Math.round(now()-t0);
-      // Log consistently; confidence uses 'confidence', difficulty uses 'difficulty', flow uses 'val'
       const rec = {pid:S.pid, type:logType, round:S.roundIndex, roundName:ROUNDS[S.roundIndex].name, ts:Math.round(now()-S.roundStart), rt};
-      if (valueField) rec[valueField] = v;
-      else rec.val = v;
+      if (valueField) rec[valueField] = v; else rec.val = v;
       S.log.push(rec);
       next();
     });
   }
 
-  // Confidence → Difficulty → 3 flow items → Time 2AFC
+  // Order: Confidence → Difficulty → Concentration → Lost-time → Time 2AFC
   function afterRoundSequence(cfg, runDuration){
     askLikert("Confidence", LABELS_CONF_5, LIKERT5, "CONF", "confidence", ()=> {
       askLikert("How difficult was that?", LABELS_DIFF_5, LIKERT5, "DIFF", "difficulty", ()=> {
-        askLikert("I was fully concentrated (1..5)", LABELS_DIFF_5, LIKERT5, "FLOW", null, ()=> {
-          askLikert("I lost track of time (1..5)", LABELS_DIFF_5, LIKERT5, "FLOW", null, ()=> {
-            askLikert("I enjoyed that round (1..5)", LABELS_DIFF_5, LIKERT5, "FLOW", null, ()=> {
-              timeTwoAFC(cfg, runDuration);
-            });
+        askLikert("I was fully concentrated (1..5)", LABELS_CONC_5, LIKERT5, "FLOW_CONC", "concentration", ()=> {
+          askLikert("I lost track of time (1..5)", LABELS_LOST_5, LIKERT5, "FLOW_LOST", "lost_time", ()=> {
+            timeTwoAFC(cfg, runDuration);
           });
         });
       });
@@ -342,11 +325,12 @@
     });
   }
 
-  // ===== FINISH & CSV =====
+  // ===== FINISH & CSVs =====
   function finish(){
     cancelLoop(); clearKeyHandler();
-    // Long-format CSV (one row per event)
-    const cols = ["pid","round","roundName","type","ts","digit","probe_digit","is_target","resp_yes","correct","confidence","difficulty","seconds","bpm","rsvpHz","plannedMs","left","right","leftIsCorrect","choice_left","chosen"];
+
+    // 1) Events CSV (long)
+    const cols = ["pid","round","roundName","type","ts","digit","probe_digit","is_target","resp_yes","correct","confidence","difficulty","concentration","lost_time","seconds","bpm","rsvpHz","plannedMs","left","right","leftIsCorrect","choice_left","chosen"];
     const lines = [cols.join(",")];
     for (const r of S.log){
       const row = {
@@ -362,6 +346,8 @@
         correct: r.correct ?? "",
         confidence: r.confidence ?? "",
         difficulty: r.difficulty ?? "",
+        concentration: r.concentration ?? "",
+        lost_time: r.lost_time ?? "",
         seconds: r.seconds ?? "",
         bpm: r.bpm ?? "",
         rsvpHz: r.rsvpHz ?? "",
@@ -374,11 +360,68 @@
       };
       lines.push(cols.map(k=>row[k]).join(","));
     }
-    const csv = lines.join("\n");
-    const url = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-    const fname = `flow_rsvp_${S.pid||'anon'}.csv`;
-    screen.innerHTML = html`<h1>Finished 🎉</h1><p class="center">Thanks for participating.</p><div class="center" style="margin-top:16px"><a class="btn" id="dl" download="${fname}">Download results CSV</a></div>`;
-    document.getElementById('dl').href = url;
+    const csvEvents = lines.join("\n");
+    const urlEvents = URL.createObjectURL(new Blob([csvEvents],{type:'text/csv'}));
+    const fnameEvents = `flow_rsvp_events_${S.pid||'anon'}.csv`;
+
+    // 2) Round Summary CSV (wide, one row per round)
+    const sumCols = ["pid","round","roundName","plannedSec","actualSec","nTaps","nBeats","nTargetsShown","probe_digit","probe_isTarget","probe_respYes","probe_correct","confidence","difficulty","concentration","lost_time","time_left","time_right","time_choice_left","time_chosen","time_correct"];
+    const sumLines = [sumCols.join(",")];
+
+    const rounds = [0,1,2];
+    for (const rIdx of rounds){
+      const rows = S.log.filter(x=>x.round===rIdx);
+      if (rows.length===0) continue;
+      const roundName = rows.find(x=>x.roundName)?.roundName || "";
+      const plannedMs = (rows.find(x=>x.type==="ROUND_START")?.plannedMs) || "";
+      const actualMs  = (rows.find(x=>x.type==="ROUND_END")?.ts) || "";
+      const nTaps  = rows.filter(x=>x.type==="TAP").length;
+      const nBeats = rows.filter(x=>x.type==="BEAT").length;
+      const nTargetsShown = new Set(S.targets.filter(t=>t.shown && S.log.find(rr=>rr.round===rIdx))).size; // rough count
+
+      const probe = rows.find(x=>x.type==="PROBE");
+      const conf  = rows.find(x=>x.type==="CONF")?.confidence ?? "";
+      const diff  = rows.find(x=>x.type==="DIFF")?.difficulty ?? "";
+      const conc  = rows.find(x=>x.type==="FLOW_CONC")?.concentration ?? "";
+      const lost  = rows.find(x=>x.type==="FLOW_LOST")?.lost_time ?? "";
+
+      const time2 = rows.find(x=>x.type==="TIME_2AFC");
+      const left  = time2?.left ?? "";
+      const right = time2?.right ?? "";
+      const choice_left = time2?.choice_left ?? "";
+      const chosen = time2?.chosen ?? "";
+      const time_correct = time2?.correct ?? "";
+
+      sumLines.push([
+        S.pid,
+        rIdx,
+        roundName,
+        plannedMs?Math.round(plannedMs/1000):"",
+        actualMs?Math.round(actualMs/1000):"",
+        nTaps, nBeats, nTargetsShown,
+        probe?.probe_digit ?? "",
+        probe?.is_target ?? "",
+        probe?.resp_yes ?? "",
+        probe?.correct ?? "",
+        conf, diff, conc, lost,
+        left, right, choice_left, chosen, time_correct
+      ].join(","));
+    }
+
+    const csvSummary = sumLines.join("\n");
+    const urlSummary = URL.createObjectURL(new Blob([csvSummary],{type:'text/csv'}));
+    const fnameSummary = `flow_rsvp_summary_${S.pid||'anon'}.csv`;
+
+    // UI
+    screen.innerHTML = `
+      <h1>Finished 🎉</h1>
+      <p class="center">Thanks for participating.</p>
+      <div class="center" style="margin-top:16px">
+        <a class="btn" id="dl1" download="${fnameEvents}">Download events CSV</a>
+        <a class="btn" id="dl2" style="margin-left:8px" download="${fnameSummary}">Download summary CSV</a>
+      </div>`;
+    document.getElementById('dl1').href = urlEvents;
+    document.getElementById('dl2').href = urlSummary;
   }
 
   // go
