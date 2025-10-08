@@ -16,13 +16,16 @@
   .hint { font-size:14px; color:#93a0ad; }
   .pill { padding:8px 12px; border-radius:999px; border:1px solid #253447; color:#cfe0f6; }
   .layout { position:relative; height:60vh; min-height:420px; display:flex; align-items:center; justify-content:center; border:1px dashed #263346; border-radius:16px; margin:20px 0; }
-  /* RSVP number centered and raised further above the dot */
+  /* RSVP number centered and raised above the dot */
   .rsvp { position:absolute; bottom:calc(50% + 140px); left:50%; transform:translateX(-50%); font-size:72px; color:#b7c3cf; opacity:.38; user-select:none; }
   .dot { width:84px; height:84px; border-radius:50%; background:#6aa6ff; opacity:.35; transition:transform .08s, opacity .08s; transform:scale(1); }
   .dot.flash { opacity:.95; transform:scale(1.08); }
   .btn { display:inline-block; background:#1a2634; border:1px solid #2a3a50; color:#d7e6fb; padding:10px 14px; border-radius:10px; cursor:pointer; }
   .btn:hover{ filter:brightness(1.1);}
   .row { display:flex; gap:12px; justify-content:center; align-items:center; flex-wrap:wrap; margin-top:12px;}
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .choice { padding:14px; border:1px solid #2b3a53; border-radius:12px; text-align:center; font-size:28px; cursor:pointer; user-select:none; }
+  .choice:hover { outline:2px solid #3b4f70; }
   input[type="text"]{ width:260px; padding:10px 12px; border-radius:10px; border:1px solid #2a3a50; background:#0f1722; color:#d7e6fb; }
 </style>
 </head>
@@ -31,21 +34,26 @@
 <script>
 (function(){
   // ===== CONFIG =====
+  // Three rounds: Easy, Medium, Hard
+  // RSVP is very fast: ~40ms, ~29ms, ~22ms intervals respectively
   const ROUNDS = [
-    {name:"Easy",   bpm:60,  rsvpHz:25, allowed:[1,3,5,7,9]},  // ~40ms
-    {name:"Medium", bpm:90,  rsvpHz:35, allowed:[1,4,6,7,9]},  // ~29ms
-    {name:"Hard",   bpm:120, rsvpHz:45, allowed:[2,4,6,7,8]},  // ~22ms
+    {name:"Easy",   bpm:60,  rsvpHz:25, targetPool:[3,8,12,17,20]},  // scheduled real targets
+    {name:"Medium", bpm:90,  rsvpHz:35, targetPool:[2,5,11,14,19]},
+    {name:"Hard",   bpm:120, rsvpHz:45, targetPool:[1,6,9,15,18]},
   ];
+
   const ROUND_DURATION_RANGE_MS = [15000, 60000]; // 15..60s
   const TARGETS_PER_ROUND = 6;
   const TARGET_FIRST_MS   = [3000,5000];
   const TARGET_GAP_MS     = [7000,11000];
 
   // Keys
-  const YES_KEY   = "KeyF";
-  const NO_KEY    = "KeyJ";
-  const CONF_KEYS = ["Digit1","Digit2","Digit3","Digit4"];          // 1..4
-  const LIKERT5   = ["Digit1","Digit2","Digit3","Digit4","Digit5"]; // 1..5
+  const YES_KEY   = "KeyF";           // recognition: Yes
+  const NO_KEY    = "KeyJ";           // recognition: No
+  const CONF_KEYS = ["Digit1","Digit2","Digit3","Digit4"];          // 1..4 confidence
+  const LIKERT5   = ["Digit1","Digit2","Digit3","Digit4","Digit5"]; // 1..5 difficulty/flow
+  const LEFT_KEY  = "KeyF";           // 2AFC time: Left
+  const RIGHT_KEY = "KeyJ";           // 2AFC time: Right
 
   // ===== STATE =====
   const S = {
@@ -54,17 +62,20 @@
     rafId: 0, keyHandler: null, keyTimeout: null,
     roundStart: 0, endAt: 0, nextBeatAt: 0, beatInterval: 600,
     nextRSVPAt: 0, rsvpInterval: 40,
-    targets: [], allowed: [],
-    rsvpShown: new Array(10).fill(0),
-    transitioning: false,              // <-- guard against re-entry loops
+    targets: [],                    // [{at, digit, shown}]
+    rsvpShown: new Array(21).fill(0), // digits 1..20 seen (index 0 unused)
+    transitioning: false,
     log: [],
   };
 
   // ===== UTILS =====
   const now = ()=>performance.now();
   const randint = (a,b)=> Math.floor(Math.random()*(b-a+1))+a;
-  const choice = arr => arr[Math.floor(Math.random()*arr.length)];
-  const shuffle = (arr)=>{ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; };
+  const choice = arr => arr[Math.floor(Math.random()*(arr.length))];
+  const shuffle = (arr)=>{ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j]]=[arr[i],arr[j]]; } return arr; };
+  // Fix the shuffle function (typo above). Correct implementation:
+  function shuffleFixed(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+
   const screen = document.getElementById('screen');
   const html   = (s,...v)=> s.map((x,i)=> x + (v[i]??'')).join('');
 
@@ -79,10 +90,11 @@
   function clearKeyHandler(){ if (S.keyTimeout){ clearTimeout(S.keyTimeout); S.keyTimeout=null; } S.keyHandler=null; }
   function cancelLoop(){ if (S.rafId){ cancelAnimationFrame(S.rafId); S.rafId=0; } }
 
-  function scheduleTargets(duration, allowed){
+  // ===== TARGET SCHEDULER =====
+  function scheduleTargets(duration, targetPool){
     const out=[]; let t = randint(...TARGET_FIRST_MS);
     for (let i=0;i<TARGETS_PER_ROUND;i++){
-      out.push({at:t, digit: choice(allowed), shown:false});
+      out.push({at:t, digit: choice(targetPool), shown:false});
       t += randint(...TARGET_GAP_MS);
       if (t>duration-1000) break;
     }
@@ -115,20 +127,20 @@
     screen.innerHTML = html`
       <h1>Tap the dot in rhythm</h1>
       <p>Press <strong>SPACE</strong> whenever the dot flashes. Keep your eyes on the dot and play naturally; numbers will also flash above the dot. We'll test whether you can recall numbers shown after the game. This test will measure intelligence.</p>
-      <div class="layout"><div class="rsvp">7</div><div class="dot" id="dot"></div></div>
+      <div class="layout"><div class="rsvp">17</div><div class="dot" id="dot"></div></div>
       <div class="center"><button class="btn" id="start">Start</button></div>
       <div class="row">
         <span class="pill">After each round: number recognition (Yes/No)</span>
         <span class="pill">Confidence 1–4</span>
         <span class="pill">Difficulty 1–5</span>
-        <span class="pill">Flow + time estimate</span>
+        <span class="pill">Flow + time 2AFC</span>
       </div>`;
     document.getElementById('start').onclick = ()=> startNextRound();
   }
 
   function startNextRound(){
     if (S.transitioning) return;
-    S.transitioning = true;            // prevent double calls
+    S.transitioning = true;
     S.roundIndex++;
     if (S.roundIndex>=ROUNDS.length) { finish(); return; }
     setTimeout(()=>{ S.transitioning=false; runRound(ROUNDS[S.roundIndex]); }, 0);
@@ -138,7 +150,7 @@
   function runRound(cfg){
     cancelLoop(); clearKeyHandler(); S.phase='round';
     S.roundStart = now();
-    const runDuration = randint(15000, 60000);
+    const runDuration = randint(ROUND_DURATION_RANGE_MS[0], ROUND_DURATION_RANGE_MS[1]);
     S.endAt      = S.roundStart + runDuration;
 
     S.beatInterval = 60000/cfg.bpm;
@@ -146,9 +158,8 @@
     S.rsvpInterval = Math.max(20, Math.round(1000/cfg.rsvpHz));
     S.nextRSVPAt   = S.roundStart + S.rsvpInterval;
 
-    S.allowed   = cfg.allowed.slice();
-    S.targets   = scheduleTargets(runDuration, S.allowed);
-    S.rsvpShown = new Array(10).fill(0);
+    S.targets     = scheduleTargets(runDuration, cfg.targetPool);
+    S.rsvpShown   = new Array(21).fill(0); // 1..20
 
     S.log.push({pid:S.pid, type:'ROUND_START', round:S.roundIndex, roundName:cfg.name, ts:0,
                 bpm:cfg.bpm, rsvpHz:cfg.rsvpHz, plannedMs:runDuration});
@@ -169,8 +180,9 @@
 
     function loop(){
       const t = now();
-      if (t>=S.endAt){ cancelLoop(); clearKeyHandler(); return postRound(cfg); }
+      if (t>=S.endAt){ cancelLoop(); clearKeyHandler(); return postRound(cfg, runDuration); }
 
+      // Jittered beat flashes (±35%)
       while (t>=S.nextBeatAt){
         const jitter = 0.35;
         const base = S.beatInterval;
@@ -181,9 +193,10 @@
         S.log.push({pid:S.pid, type:'BEAT', round:S.roundIndex, roundName:cfg.name, ts:Math.round(t-S.roundStart)});
       }
 
+      // RSVP digits 1..20 (force scheduled targets when near their time)
       while (t>=S.nextRSVPAt){
         S.nextRSVPAt += S.rsvpInterval;
-        let digit = choice(S.allowed);
+        let digit = randint(1,20);
         const elapsed = t - S.roundStart;
 
         for (const tgt of S.targets){
@@ -204,33 +217,32 @@
   }
 
   // ===== AFTER ROUND =====
-  function postRound(cfg){
+  function postRound(cfg, runDuration){
     S.log.push({pid:S.pid, type:'ROUND_END', round:S.roundIndex, roundName:cfg.name,
                 ts:Math.round(now()-S.roundStart)});
 
+    // Unique target digits that actually showed
     const shownTargets = [];
     for (const t of S.targets){ if (t.shown) shownTargets.push(t.digit); }
     const uniqTargets = Array.from(new Set(shownTargets));
 
-    const foilPool = [];
-    for (let d=0; d<=9; d++){ if (!S.allowed.includes(d)) foilPool.push(d); }
+    // Foil pool = digits 1..20 that did NOT appear at all
+    const unseen = [];
+    for (let d=1; d<=20; d++){ if (!S.rsvpShown[d]) unseen.push(d); }
+    if (unseen.length===0){
+      for (let d=1; d<=20; d++){ if (!uniqTargets.includes(d)) unseen.push(d); }
+    }
 
+    // Build exactly TWO Yes/No probes: one target (if any) + one foil
     const probes = [];
-    for (const td of uniqTargets) probes.push({digit:td, isTarget:true});
-    let i=0;
-    while (probes.filter(p=>p.isTarget).length > probes.filter(p=>!p.isTarget).length){
-      const f = foilPool[i % foilPool.length];
-      probes.push({digit:f, isTarget:false});
-      i++;
-    }
-    if (probes.length===0){
-      for (let k=0;k<3;k++) probes.push({digit: foilPool[k % foilPool.length], isTarget:false});
-    }
+    if (uniqTargets.length>0) probes.push({digit: choice(uniqTargets), isTarget:true});
+    if (unseen.length>0)      probes.push({digit: choice(unseen), isTarget:false});
+    while (probes.length<2)   probes.push({digit: unseen.length?choice(unseen):randint(1,20), isTarget:false});
 
-    shuffle(probes);
+    shuffleFixed(probes);
     let idx = 0;
     const next = ()=> {
-      if (idx >= probes.length) return postRoundSurvey();
+      if (idx >= probes.length) return postRoundSurvey(cfg, runDuration);
       yesNoProbe(probes[idx++], next, cfg);
     };
     next();
@@ -259,14 +271,16 @@
   }
 
   function difficultyThenConfidence(next, cfg){
-    // Mirror the confidence UI with 1..5 pills
+    // Difficulty with labels (1..5)
     cancelLoop(); clearKeyHandler();
     screen.innerHTML = html`
       <h1>How difficult was that?</h1>
       <div class="row">
-        <span class="pill">1</span><span class="pill">2</span>
-        <span class="pill">3</span><span class="pill">4</span>
-        <span class="pill">5</span>
+        <span class="pill">1 · Very easy</span>
+        <span class="pill">2 · Easy</span>
+        <span class="pill">3 · Moderate</span>
+        <span class="pill">4 · Hard</span>
+        <span class="pill">5 · Very hard</span>
       </div>
       <p class="center hint">Press 1..5</p>`;
     const t0 = now();
@@ -281,10 +295,12 @@
   function confidence(next, cfg){
     cancelLoop(); clearKeyHandler();
     screen.innerHTML = html`
-      <h1>Confidence (1–4)</h1>
+      <h1>Confidence</h1>
       <div class="row">
-        <span class="pill">1</span><span class="pill">2</span>
-        <span class="pill">3</span><span class="pill">4</span>
+        <span class="pill">1 · Not at all</span>
+        <span class="pill">2 · Slightly</span>
+        <span class="pill">3 · Mostly</span>
+        <span class="pill">4 · Very</span>
       </div>
       <p class="center hint">Press 1..4</p>`;
     const t0 = now();
@@ -296,11 +312,10 @@
     });
   }
 
-  // ===== FLOW SURVEY & TIME ESTIMATE =====
-  function postRoundSurvey(){
+  // ===== FLOW SURVEY (3 items) & TIME 2AFC =====
+  function postRoundSurvey(cfg, runDuration){
     cancelLoop(); clearKeyHandler();
     const qs = [
-      'Challenge matched my skill (1..5)',
       'I was fully concentrated (1..5)',
       'I lost track of time (1..5)',
       'I enjoyed that round (1..5)'
@@ -311,35 +326,54 @@
         screen.innerHTML = html`<h1>After-round questions</h1><p class="center mid">${qs[i]}</p><p class="center hint">Press 1..5</p>`;
         setKeyHandler(LIKERT5,20000, code=>{
           const val = code ? (LIKERT5.indexOf(code)+1) : null;
-          S.log.push({pid:S.pid, type:'FLOW', round:S.roundIndex, roundName:ROUNDS[S.roundIndex].name, item:i+1, val});
+          S.log.push({pid:S.pid, type:'FLOW', round:S.roundIndex, roundName:cfg.name, item:i+1, val});
           i++; ask();
         });
-      } else { timeEstimate(); }
+      } else { timeTwoAFC(cfg, runDuration); }
     };
     ask();
   }
 
-  function timeEstimate(){
+  function timeTwoAFC(cfg, runDuration){
     cancelLoop(); clearKeyHandler();
-    let typed='';
-    const render=()=>{ screen.innerHTML = html`<h1>How many seconds did that round feel like?</h1><div class="center mid">${typed||'—'}</div><p class="center hint">Type 2–3 digits, then Enter</p>`; };
-    render();
-    S.keyHandler = (e)=>{
-      if (/Digit[0-9]/.test(e.code) && typed.length<3){ typed += e.code.replace('Digit',''); render(); }
-      else if (e.code==='Backspace'){ typed = typed.slice(0,-1); render(); }
-      else if (e.code==='Enter'){
-        clearKeyHandler();
-        const val = typed?parseInt(typed,10):null;
-        S.log.push({pid:S.pid, type:'TIME_EST', round:S.roundIndex, roundName:ROUNDS[S.roundIndex].name, seconds:val});
-        startNextRound();                 // <-- guarded w/ S.transitioning in startNextRound()
-      }
-    };
+    // Actual seconds (rounded)
+    const actualSec = Math.round(runDuration/1000);
+    // Build a plausible foil: differ by 5..20s, clamp to 15..60
+    let delta = choice([5,6,7,8,9,10,12,15,18,20]);
+    if (Math.random()<0.5) delta = -delta;
+    let foilSec = Math.max(15, Math.min(60, actualSec + delta));
+    if (foilSec === actualSec) foilSec = Math.max(15, Math.min(60, actualSec + (delta>0 ? 5 : -5)));
+    const leftIsCorrect = Math.random()<0.5;
+    const L = leftIsCorrect ? actualSec : foilSec;
+    const R = leftIsCorrect ? foilSec : actualSec;
+
+    screen.innerHTML = html`
+      <h1>How long did that round last?</h1>
+      <div class="two">
+        <div class="choice" id="left">${L} sec</div>
+        <div class="choice" id="right">${R} sec</div>
+      </div>
+      <p class="center hint">Press <strong>F</strong> (left) or <strong>J</strong> (right)</p>
+    `;
+    const start = now();
+    setKeyHandler([LEFT_KEY, RIGHT_KEY], 20000, (code)=>{
+      const rt = Math.round(now()-start);
+      const pickLeft = code===LEFT_KEY ? 1 : code===RIGHT_KEY ? 0 : null;
+      const chosen = pickLeft===null ? null : (pickLeft ? L : R);
+      const correct = chosen===null ? 0 : (chosen===actualSec ? 1 : 0);
+      S.log.push({
+        pid:S.pid, type:'TIME_2AFC', round:S.roundIndex, roundName:cfg.name,
+        left:L, right:R, leftIsCorrect:leftIsCorrect?1:0, choice_left:pickLeft, chosen, correct, rt
+      });
+      startNextRound();
+    });
   }
 
   // ===== FINISH & CSV =====
   function finish(){
     cancelLoop(); clearKeyHandler();
-    const cols = ["pid","round","roundName","type","ts","digit","probe_digit","is_target","resp_yes","correct","confidence","difficulty","seconds","bpm","rsvpHz","plannedMs"];
+    // Long-format CSV (one row per event)
+    const cols = ["pid","round","roundName","type","ts","digit","probe_digit","is_target","resp_yes","correct","confidence","difficulty","seconds","bpm","rsvpHz","plannedMs","left","right","leftIsCorrect","choice_left","chosen"];
     const lines = [cols.join(",")];
     for (const r of S.log){
       const row = {
@@ -358,7 +392,12 @@
         seconds: r.seconds ?? "",
         bpm: r.bpm ?? "",
         rsvpHz: r.rsvpHz ?? "",
-        plannedMs: r.plannedMs ?? ""
+        plannedMs: r.plannedMs ?? "",
+        left: r.left ?? "",
+        right: r.right ?? "",
+        leftIsCorrect: r.leftIsCorrect ?? "",
+        choice_left: r.choice_left ?? "",
+        chosen: r.chosen ?? ""
       };
       lines.push(cols.map(k=>row[k]).join(","));
     }
