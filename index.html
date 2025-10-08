@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Flow Tapper + Peripheral RSVP (Yes/No + Confidence + Difficulty)</title>
+<title>Flow Tapper + Peripheral RSVP (Yes/No + Confidence 5pt + Difficulty)</title>
 <style>
   :root { --bg:#0b1117; --fg:#e6edf3; --muted:#9aa7b2; --accent:#6aa6ff; }
   html,body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg); font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;}
@@ -37,7 +37,7 @@
   // Three rounds: Easy, Medium, Hard
   // RSVP is very fast: ~40ms, ~29ms, ~22ms intervals respectively
   const ROUNDS = [
-    {name:"Easy",   bpm:60,  rsvpHz:25, targetPool:[3,8,12,17,20]},  // scheduled real targets
+    {name:"Easy",   bpm:60,  rsvpHz:25, targetPool:[3,8,12,17,20]},  // scheduled real targets (from 1..20 overall)
     {name:"Medium", bpm:90,  rsvpHz:35, targetPool:[2,5,11,14,19]},
     {name:"Hard",   bpm:120, rsvpHz:45, targetPool:[1,6,9,15,18]},
   ];
@@ -50,10 +50,13 @@
   // Keys
   const YES_KEY   = "KeyF";           // recognition: Yes
   const NO_KEY    = "KeyJ";           // recognition: No
-  const CONF_KEYS = ["Digit1","Digit2","Digit3","Digit4"];          // 1..4 confidence
-  const LIKERT5   = ["Digit1","Digit2","Digit3","Digit4","Digit5"]; // 1..5 difficulty/flow
+  const LIKERT5   = ["Digit1","Digit2","Digit3","Digit4","Digit5"]; // 1..5 (for all after-round)
   const LEFT_KEY  = "KeyF";           // 2AFC time: Left
   const RIGHT_KEY = "KeyJ";           // 2AFC time: Right
+
+  // Likert label sets (shared UI)
+  const LABELS_CONF_5 = ["1 · Not at all","2 · Slightly","3 · Somewhat","4 · Mostly","5 · Very"];
+  const LABELS_DIFF_5 = ["1 · Very easy","2 · Easy","3 · Moderate","4 · Hard","5 · Very hard"];
 
   // ===== STATE =====
   const S = {
@@ -72,9 +75,7 @@
   const now = ()=>performance.now();
   const randint = (a,b)=> Math.floor(Math.random()*(b-a+1))+a;
   const choice = arr => arr[Math.floor(Math.random()*(arr.length))];
-  const shuffle = (arr)=>{ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j]]=[arr[i],arr[j]]; } return arr; };
-  // Fix the shuffle function (typo above). Correct implementation:
-  function shuffleFixed(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+  function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
 
   const screen = document.getElementById('screen');
   const html   = (s,...v)=> s.map((x,i)=> x + (v[i]??'')).join('');
@@ -131,7 +132,7 @@
       <div class="center"><button class="btn" id="start">Start</button></div>
       <div class="row">
         <span class="pill">After each round: number recognition (Yes/No)</span>
-        <span class="pill">Confidence 1–4</span>
+        <span class="pill">Confidence 1–5</span>
         <span class="pill">Difficulty 1–5</span>
         <span class="pill">Flow + time 2AFC</span>
       </div>`;
@@ -239,10 +240,10 @@
     if (unseen.length>0)      probes.push({digit: choice(unseen), isTarget:false});
     while (probes.length<2)   probes.push({digit: unseen.length?choice(unseen):randint(1,20), isTarget:false});
 
-    shuffleFixed(probes);
+    shuffle(probes);
     let idx = 0;
     const next = ()=> {
-      if (idx >= probes.length) return postRoundSurvey(cfg, runDuration);
+      if (idx >= probes.length) return afterRoundSequence(cfg, runDuration);
       yesNoProbe(probes[idx++], next, cfg);
     };
     next();
@@ -266,79 +267,51 @@
         probe_digit: probe.digit, is_target: probe.isTarget?1:0,
         resp_yes: respYes, correct
       });
-      difficultyThenConfidence(done, cfg);
+      done();
     });
   }
 
-  function difficultyThenConfidence(next, cfg){
-    // Difficulty with labels (1..5)
+  // ===== UNIFIED AFTER-ROUND LIKERT UI =====
+  function askLikert(title, labels, keyset, logType, valueField, next){
     cancelLoop(); clearKeyHandler();
     screen.innerHTML = html`
-      <h1>How difficult was that?</h1>
+      <h1>${title}</h1>
       <div class="row">
-        <span class="pill">1 · Very easy</span>
-        <span class="pill">2 · Easy</span>
-        <span class="pill">3 · Moderate</span>
-        <span class="pill">4 · Hard</span>
-        <span class="pill">5 · Very hard</span>
+        ${labels.map(l=>`<span class="pill">${l}</span>`).join("")}
       </div>
-      <p class="center hint">Press 1..5</p>`;
+      <p class="center hint">Press 1..${labels.length}</p>`;
     const t0 = now();
-    setKeyHandler(LIKERT5, 20000, code=>{
-      const difficulty = code ? (LIKERT5.indexOf(code)+1) : null;
+    setKeyHandler(keyset, 20000, code=>{
+      const v = code ? (keyset.indexOf(code)+1) : null;
       const rt = Math.round(now()-t0);
-      S.log.push({pid:S.pid, type:'DIFF', round:S.roundIndex, roundName:cfg.name, ts:Math.round(now()-S.roundStart), difficulty, rt});
-      confidence(next, cfg);
-    });
-  }
-
-  function confidence(next, cfg){
-    cancelLoop(); clearKeyHandler();
-    screen.innerHTML = html`
-      <h1>Confidence</h1>
-      <div class="row">
-        <span class="pill">1 · Not at all</span>
-        <span class="pill">2 · Slightly</span>
-        <span class="pill">3 · Mostly</span>
-        <span class="pill">4 · Very</span>
-      </div>
-      <p class="center hint">Press 1..4</p>`;
-    const t0 = now();
-    setKeyHandler(CONF_KEYS, 20000, code=>{
-      const confidence = code ? (CONF_KEYS.indexOf(code)+1) : null;
-      const rt = Math.round(now()-t0);
-      S.log.push({pid:S.pid, type:'CONF', round:S.roundIndex, roundName:cfg.name, ts:Math.round(now()-S.roundStart), confidence, rt});
+      // Log consistently; confidence uses 'confidence', difficulty uses 'difficulty', flow uses 'val'
+      const rec = {pid:S.pid, type:logType, round:S.roundIndex, roundName:ROUNDS[S.roundIndex].name, ts:Math.round(now()-S.roundStart), rt};
+      if (valueField) rec[valueField] = v;
+      else rec.val = v;
+      S.log.push(rec);
       next();
     });
   }
 
-  // ===== FLOW SURVEY (3 items) & TIME 2AFC =====
-  function postRoundSurvey(cfg, runDuration){
-    cancelLoop(); clearKeyHandler();
-    const qs = [
-      'I was fully concentrated (1..5)',
-      'I lost track of time (1..5)',
-      'I enjoyed that round (1..5)'
-    ];
-    let i=0;
-    const ask=()=>{
-      if (i<qs.length){
-        screen.innerHTML = html`<h1>After-round questions</h1><p class="center mid">${qs[i]}</p><p class="center hint">Press 1..5</p>`;
-        setKeyHandler(LIKERT5,20000, code=>{
-          const val = code ? (LIKERT5.indexOf(code)+1) : null;
-          S.log.push({pid:S.pid, type:'FLOW', round:S.roundIndex, roundName:cfg.name, item:i+1, val});
-          i++; ask();
+  // Confidence → Difficulty → 3 flow items → Time 2AFC
+  function afterRoundSequence(cfg, runDuration){
+    askLikert("Confidence", LABELS_CONF_5, LIKERT5, "CONF", "confidence", ()=> {
+      askLikert("How difficult was that?", LABELS_DIFF_5, LIKERT5, "DIFF", "difficulty", ()=> {
+        askLikert("I was fully concentrated (1..5)", LABELS_DIFF_5, LIKERT5, "FLOW", null, ()=> {
+          askLikert("I lost track of time (1..5)", LABELS_DIFF_5, LIKERT5, "FLOW", null, ()=> {
+            askLikert("I enjoyed that round (1..5)", LABELS_DIFF_5, LIKERT5, "FLOW", null, ()=> {
+              timeTwoAFC(cfg, runDuration);
+            });
+          });
         });
-      } else { timeTwoAFC(cfg, runDuration); }
-    };
-    ask();
+      });
+    });
   }
 
+  // ===== TIME 2AFC =====
   function timeTwoAFC(cfg, runDuration){
     cancelLoop(); clearKeyHandler();
-    // Actual seconds (rounded)
     const actualSec = Math.round(runDuration/1000);
-    // Build a plausible foil: differ by 5..20s, clamp to 15..60
     let delta = choice([5,6,7,8,9,10,12,15,18,20]);
     if (Math.random()<0.5) delta = -delta;
     let foilSec = Math.max(15, Math.min(60, actualSec + delta));
