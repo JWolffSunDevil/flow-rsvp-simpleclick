@@ -5,27 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Flow Tapper + Peripheral RSVP (Yes/No + Likerts + Time 2AFC)</title>
 <style>
-  :root { --bg:#0b1117; --fg:#e6edf3; --muted:#9aa7b2; --accent:#6aa6ff; }
-  html,body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg); font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;}
+  :root {
+    --bg:#ffffff; --fg:#0f1720; --muted:#4b5563; --accent:#0b5fff;
+    --border:#e5e7eb; --pill:#111827; --pill-border:#cbd5e1;
+  }
+  html,body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;}
   #app { display:flex; align-items:center; justify-content:center; height:100%; }
-  .card { width:min(900px,92vw); border:1px solid #243041; border-radius:16px; padding:28px; box-shadow:0 10px 30px rgba(0,0,0,.25); background:linear-gradient(180deg,#0e1520 0%,#0b1117 100%); }
-  h1 { margin:0 0 6px 0; font-size:22px; color:#d5e2f0; }
+  .card { width:min(900px,92vw); border:1px solid var(--border); border-radius:16px; padding:28px;
+    box-shadow:0 10px 30px rgba(0,0,0,.07); background:linear-gradient(180deg,#ffffff 0%,#f9fafb 100%); }
+  h1 { margin:0 0 6px 0; font-size:22px; color:#0b1220; }
   p { color:var(--muted); line-height:1.5; }
   .center { text-align:center; }
   .mid { font-size:36px; }
-  .hint { font-size:14px; color:#93a0ad; }
-  .pill { padding:8px 12px; border-radius:999px; border:1px solid #253447; color:#cfe0f6; }
-  .layout { position:relative; height:60vh; min-height:420px; display:flex; align-items:center; justify-content:center; border:1px dashed #263346; border-radius:16px; margin:20px 0; }
-  .rsvp { position:absolute; bottom:calc(50% + 140px); left:50%; transform:translateX(-50%); font-size:72px; color:#b7c3cf; opacity:.38; user-select:none; }
-  .dot { width:84px; height:84px; border-radius:50%; background:#6aa6ff; opacity:.35; transition:transform .08s, opacity .08s; transform:scale(1); }
+  .hint { font-size:14px; color:#6b7280; }
+  .pill { padding:8px 12px; border-radius:999px; border:1px solid var(--pill-border); color:#111827; background:#f8fafc; }
+  .layout {
+    position:relative; height:60vh; min-height:420px; display:flex; align-items:center; justify-content:center;
+    border:1px dashed var(--pill-border); border-radius:16px; margin:20px 0; background:#fff;
+  }
+  /* RSVP number centered above the dot (light theme color/opacity tweaked) */
+  .rsvp { position:absolute; bottom:calc(50% + 140px); left:50%; transform:translateX(-50%);
+    font-size:72px; color:#1f2937; opacity:.22; user-select:none; }
+  .dot { width:84px; height:84px; border-radius:50%; background:var(--accent); opacity:.25;
+    transition:transform .08s, opacity .08s; transform:scale(1); }
   .dot.flash { opacity:.95; transform:scale(1.08); }
-  .btn { display:inline-block; background:#1a2634; border:1px solid #2a3a50; color:#d7e6fb; padding:10px 14px; border-radius:10px; cursor:pointer; }
+  .btn { display:inline-block; background:#111827; border:1px solid #0f1720; color:#ffffff;
+    padding:10px 14px; border-radius:10px; cursor:pointer; }
   .btn:hover{ filter:brightness(1.1);}
   .row { display:flex; gap:12px; justify-content:center; align-items:center; flex-wrap:wrap; margin-top:12px;}
   .two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  .choice { padding:14px; border:1px solid #2b3a53; border-radius:12px; text-align:center; font-size:28px; cursor:pointer; user-select:none; }
-  .choice:hover { outline:2px solid #3b4f70; }
-  input[type="text"]{ width:260px; padding:10px 12px; border-radius:10px; border:1px solid #2a3a50; background:#0f1722; color:#d7e6fb; }
+  .choice { padding:14px; border:1px solid var(--pill-border); border-radius:12px; text-align:center; font-size:28px; cursor:pointer; user-select:none; background:#fff; }
+  .choice:hover { outline:2px solid #d1d5db; }
+  input[type="text"]{ width:260px; padding:10px 12px; border-radius:10px; border:1px solid var(--pill-border); background:#fff; color:#0f1720; }
 </style>
 </head>
 <body>
@@ -33,10 +45,11 @@
 <script>
 (function(){
   // ===== CONFIG =====
+  // Faster RSVP (hard to read by design). Clamp to ~16ms (≈60 Hz).
   const ROUNDS = [
-    {name:"Easy",   bpm:60,  rsvpHz:25, targetPool:[3,8,12,17,20]},
-    {name:"Medium", bpm:90,  rsvpHz:35, targetPool:[2,5,11,14,19]},
-    {name:"Hard",   bpm:120, rsvpHz:45, targetPool:[1,6,9,15,18]},
+    {name:"Easy",   bpm:60,  rsvpHz:35, targetPool:[3,8,12,17,20]},
+    {name:"Medium", bpm:90,  rsvpHz:48, targetPool:[2,5,11,14,19]},
+    {name:"Hard",   bpm:120, rsvpHz:60, targetPool:[1,6,9,15,18]},
   ];
   const ROUND_DURATION_RANGE_MS = [15000, 60000]; // 15..60s
   const TARGETS_PER_ROUND = 6;
@@ -52,7 +65,6 @@
 
   // Likert labels
   const LABELS_CONF_5 = ["1 · Not at all","2 · Slightly","3 · Somewhat","4 · Mostly","5 · Very"];
-  const LABELS_DIFF_5 = ["1 · Very easy","2 · Easy","3 · Moderate","4 · Hard","5 · Very hard"];
   const LABELS_CONC_5 = ["1 · Extremely concentrated","2 · Very","3 · Moderately","4 · Slightly","5 · Not at all"];
   const LABELS_LOST_5 = ["1 · Not at all","2 · Slightly","3 · Somewhat","4 · Mostly","5 · Completely"];
 
@@ -126,7 +138,8 @@
     cancelLoop(); clearKeyHandler(); S.phase='intro';
     screen.innerHTML = html`
       <h1>Tap the dot in rhythm</h1>
-      <p>Press <strong>SPACE</strong> whenever the dot flashes. Keep your eyes on the dot and play naturally; numbers will also flash above the dot. We'll test whether you can recall numbers shown after the game. This test will measure intelligence. <br><br><em>This game has three rounds, and should take less than 10 minutes to complete. Thank you for your full participation.</em></p>
+      <p>Press <strong>SPACE</strong> whenever the dot flashes. Keep your eyes on the dot and play naturally; numbers will also flash above the dot. We'll test whether you can recall numbers shown after the game. This test will measure intelligence.
+      <br><br><em>This game has three rounds, and should take less than 10 minutes to complete. Thank you for your full participation.</em></p>
       <div class="layout"><div class="rsvp">17</div><div class="dot" id="dot"></div></div>
       <div class="center"><button class="btn" id="start">Start</button></div>`;
     document.getElementById('start').onclick = ()=> startNextRound();
@@ -149,7 +162,7 @@
 
     S.beatInterval = 60000/cfg.bpm;
     S.nextBeatAt   = S.roundStart + S.beatInterval;
-    S.rsvpInterval = Math.max(20, Math.round(1000/cfg.rsvpHz));
+    S.rsvpInterval = Math.max(16, Math.round(1000/cfg.rsvpHz)); // clamp to ~60 fps
     S.nextRSVPAt   = S.roundStart + S.rsvpInterval;
 
     S.targets     = scheduleTargets(runDuration, cfg.targetPool);
@@ -176,6 +189,7 @@
       const t = now();
       if (t>=S.endAt){ cancelLoop(); clearKeyHandler(); return postRound(cfg, runDuration); }
 
+      // Jittered beats (±35%)
       while (t>=S.nextBeatAt){
         const jitter = 0.35;
         const base = S.beatInterval;
@@ -186,6 +200,7 @@
         S.log.push({pid:S.pid, type:'BEAT', round:S.roundIndex, roundName:cfg.name, ts:Math.round(t-S.roundStart)});
       }
 
+      // RSVP digits
       while (t>=S.nextRSVPAt){
         S.nextRSVPAt += S.rsvpInterval;
         let digit = randint(1,20);
@@ -211,7 +226,7 @@
 
   // ===== AFTER ROUND =====
   function postRound(cfg, runDuration){
-    // compute how many scheduled targets actually showed this round
+    // count how many scheduled targets actually showed
     const nTargetsShown = new Set(S.targets.filter(t=>t.shown).map(t=>t.digit)).size;
     S.roundMeta[S.roundIndex] = { nTargetsShown };
     S.log.push({pid:S.pid, type:'ROUND_META', round:S.roundIndex, roundName:cfg.name, nTargetsShown});
@@ -219,23 +234,19 @@
     S.log.push({pid:S.pid, type:'ROUND_END', round:S.roundIndex, roundName:cfg.name,
                 ts:Math.round(now()-S.roundStart)});
 
-    // Unique target digits that actually showed
+    // Build one probe (prefer actual target, else true foil)
     const uniqTargets = Array.from(new Set(S.targets.filter(t=>t.shown).map(t=>t.digit)));
-    // Foil pool = digits 1..20 that did NOT appear at all
     const unseen = []; for (let d=1; d<=20; d++){ if (!S.rsvpShown[d]) unseen.push(d); }
-    if (unseen.length===0){
-      for (let d=1; d<=20; d++){ if (!uniqTargets.includes(d)) unseen.push(d); }
-    }
+    if (unseen.length===0){ for (let d=1; d<=20; d++){ if (!uniqTargets.includes(d)) unseen.push(d); } }
 
-    // Exactly ONE probe: prefer a real target, else a true foil
-    let probe;
-    if (uniqTargets.length>0) probe = {digit: choice(uniqTargets), isTarget:true};
-    else                      probe = {digit: choice(unseen.length?unseen:[randint(1,20)]), isTarget:false};
+    const probe = (uniqTargets.length>0)
+      ? {digit: choice(uniqTargets), isTarget:true}
+      : {digit: choice(unseen.length?unseen:[randint(1,20)]), isTarget:false};
 
     yesNoProbe(probe, ()=> afterRoundSequence(cfg, runDuration), cfg);
   }
 
-  function yesNoProbe(probe, done, cfg){
+  function yesNoProbe(probe, done){
     cancelLoop(); clearKeyHandler();
     screen.innerHTML = html`
       <h1>Did you see this number?</h1>
@@ -248,7 +259,7 @@
       const respYes = code===YES_KEY ? 1 : code===NO_KEY ? 0 : null;
       const correct = respYes===null ? 0 : (respYes===1 ? (probe.isTarget?1:0) : (probe.isTarget?0:1));
       S.log.push({
-        pid:S.pid, type:'PROBE', round:S.roundIndex, roundName:cfg.name,
+        pid:S.pid, type:'PROBE', round:S.roundIndex, roundName:ROUNDS[S.roundIndex].name,
         ts:Math.round(now()-S.roundStart),
         probe_digit: probe.digit, is_target: probe.isTarget?1:0,
         resp_yes: respYes, correct
@@ -257,7 +268,7 @@
     });
   }
 
-  // ===== Reusable Likert UI =====
+  // ===== Likert UI (Confidence, Concentration, Lost-time) =====
   function askLikert(title, labels, keyset, logType, valueField, next){
     cancelLoop(); clearKeyHandler();
     screen.innerHTML = html`
@@ -277,14 +288,12 @@
     });
   }
 
-  // Order: Confidence → Difficulty → Concentration → Lost-time → Time 2AFC
+  // Order: Confidence → Concentration → Lost-time → Time 2AFC
   function afterRoundSequence(cfg, runDuration){
     askLikert("Confidence", LABELS_CONF_5, LIKERT5, "CONF", "confidence", ()=> {
-      askLikert("How difficult was that?", LABELS_DIFF_5, LIKERT5, "DIFF", "difficulty", ()=> {
-        askLikert("I was fully concentrated (1..5)", LABELS_CONC_5, LIKERT5, "FLOW_CONC", "concentration", ()=> {
-          askLikert("I lost track of time (1..5)", LABELS_LOST_5, LIKERT5, "FLOW_LOST", "lost_time", ()=> {
-            timeTwoAFC(cfg, runDuration);
-          });
+      askLikert("I was fully concentrated (1..5)", LABELS_CONC_5, LIKERT5, "FLOW_CONC", "concentration", ()=> {
+        askLikert("I lost track of time (1..5)", LABELS_LOST_5, LIKERT5, "FLOW_LOST", "lost_time", ()=> {
+          timeTwoAFC(cfg, runDuration);
         });
       });
     });
@@ -328,8 +337,8 @@
   function finish(){
     cancelLoop(); clearKeyHandler();
 
-    // 1) Events CSV (long)
-    const cols = ["pid","round","roundName","type","ts","digit","probe_digit","is_target","resp_yes","correct","confidence","difficulty","concentration","lost_time","seconds","bpm","rsvpHz","plannedMs","left","right","leftIsCorrect","choice_left","chosen"];
+    // 1) Events CSV (long; unchanged for deep analysis)
+    const cols = ["pid","round","roundName","type","ts","digit","probe_digit","is_target","resp_yes","correct","confidence","concentration","lost_time","seconds","bpm","rsvpHz","plannedMs","left","right","leftIsCorrect","choice_left","chosen"];
     const lines = [cols.join(",")];
     for (const r of S.log){
       const row = {
@@ -344,7 +353,6 @@
         resp_yes: r.resp_yes ?? "",
         correct: r.correct ?? "",
         confidence: r.confidence ?? "",
-        difficulty: r.difficulty ?? "",
         concentration: r.concentration ?? "",
         lost_time: r.lost_time ?? "",
         seconds: r.seconds ?? "",
@@ -363,14 +371,15 @@
     const urlEvents = URL.createObjectURL(new Blob([csvEvents],{type:'text/csv'}));
     const fnameEvents = `flow_rsvp_events_${S.pid||'anon'}.csv`;
 
-    // 2) Round Summary CSV (clear names)
+    // 2) Round Summary CSV (clean, human-readable names)
     const sumCols = [
       "participant_id","round_index","round_name",
       "planned_duration_seconds","actual_duration_seconds",
-      "taps_count","beats_count","n_targets_shown",
-      "recognition_digit","recognition_was_target","recognition_yes","recognition_correct",
-      "confidence_1to5","difficulty_1to5","concentration_1to5","lost_time_1to5",
-      "time_left_option_seconds","time_right_option_seconds","time_choice_left","time_chosen_seconds","time_correct"
+      "beats_per_minute","rsvp_rate_hz",
+      "taps_count","beats_count","targets_shown_count",
+      "recognition_digit","recognition_was_scheduled_target","recognition_answer_yes","recognition_correct",
+      "confidence_1to5","concentration_1to5","lost_time_1to5",
+      "time_options_left_seconds","time_options_right_seconds","time_chosen_left","time_chosen_seconds","time_choice_correct"
     ];
     const sumLines = [sumCols.join(",")];
 
@@ -380,13 +389,14 @@
       const roundName = rows.find(x=>x.roundName)?.roundName || "";
       const plannedMs = (rows.find(x=>x.type==="ROUND_START")?.plannedMs) || "";
       const actualMs  = (rows.find(x=>x.type==="ROUND_END")?.ts) || "";
+      const bpm       = rows.find(x=>x.type==="ROUND_START")?.bpm ?? "";
+      const rsvpHz    = rows.find(x=>x.type==="ROUND_START")?.rsvpHz ?? "";
       const tapsCount  = rows.filter(x=>x.type==="TAP").length;
       const beatsCount = rows.filter(x=>x.type==="BEAT").length;
-      const nTargetsShown = rows.find(x=>x.type==="ROUND_META")?.nTargetsShown ?? "";
+      const targetsShownCount = rows.find(x=>x.type==="ROUND_META")?.nTargetsShown ?? "";
 
       const probe = rows.find(x=>x.type==="PROBE");
       const conf  = rows.find(x=>x.type==="CONF")?.confidence ?? "";
-      const diff  = rows.find(x=>x.type==="DIFF")?.difficulty ?? "";
       const conc  = rows.find(x=>x.type==="FLOW_CONC")?.concentration ?? "";
       const lost  = rows.find(x=>x.type==="FLOW_LOST")?.lost_time ?? "";
 
@@ -398,17 +408,16 @@
       const time_correct = time2?.correct ?? "";
 
       sumLines.push([
-        S.pid,
-        rIdx,
-        roundName,
+        S.pid, rIdx, roundName,
         plannedMs?Math.round(plannedMs/1000):"",
         actualMs?Math.round(actualMs/1000):"",
-        tapsCount, beatsCount, nTargetsShown,
+        bpm, rsvpHz,
+        tapsCount, beatsCount, targetsShownCount,
         probe?.probe_digit ?? "",
         probe?.is_target ?? "",
         probe?.resp_yes ?? "",
         probe?.correct ?? "",
-        conf, diff, conc, lost,
+        conf, conc, lost,
         left, right, choice_left, chosen, time_correct
       ].join(","));
     }
