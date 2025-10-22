@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Flow Tapper + Peripheral RSVP (Yes/No + Likerts + Time 2AFC)</title>
+<title>Flow Tapper + Peripheral RSVP (Ultra-fast + Demographics)</title>
 <style>
   :root {
     --bg:#ffffff; --fg:#0f1720; --muted:#4b5563; --accent:#0b5fff;
@@ -24,9 +24,6 @@
     position:relative; height:60vh; min-height:420px; display:flex; align-items:center; justify-content:center;
     border:1px dashed var(--pill-border); border-radius:16px; margin:20px 0; background:#fff;
   }
-  /* RSVP number centered above the dot */
-  .rsvp { position:absolute; bottom:calc(50% + 140px); left:50%; transform:translateX(-50%);
-    font-size:72px; color:#1f2937; opacity:.18; user-select:none; letter-spacing:0.02em; }
   .dot { width:84px; height:84px; border-radius:50%; background:var(--accent); opacity:.25;
     transition:transform .08s, opacity .08s; transform:scale(1); }
   .dot.flash { opacity:.95; transform:scale(1.08); }
@@ -41,6 +38,11 @@
   .form-row{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:10px 0;}
   .opt{ display:flex; gap:8px; align-items:center; }
   .tiny{ font-size:12px; color:#6b7280; }
+  /* Canvas sits where the old RSVP text was—centered above the dot */
+  #rsvpCanvas{
+    position:absolute; bottom:calc(50% + 140px); left:50%; transform:translateX(-50%);
+    width:720px; height:160px; /* CSS size */
+  }
 </style>
 </head>
 <body>
@@ -48,16 +50,25 @@
 <script>
 (function(){
   // ===== CONFIG =====
-  // ULTRA RSVP: try ~240 Hz updates + micro-visibility windows (rendering still capped by monitor refresh)
+  // RSVP logic now uses canvas + micro-flash + metacontrast masking.
   const ROUNDS = [
-    {name:"Easy",   bpm:60,  rsvpHz:240, targetPool:[3,8,12,17,20]},
-    {name:"Medium", bpm:90,  rsvpHz:240, targetPool:[2,5,11,14,19]},
-    {name:"Hard",   bpm:120, rsvpHz:240, targetPool:[1,6,9,15,18]},
+    {name:"Easy",   bpm:60,  rsvpHz:120, targetPool:[3,8,12,17,20]},
+    {name:"Medium", bpm:90,  rsvpHz:120, targetPool:[2,5,11,14,19]},
+    {name:"Hard",   bpm:120, rsvpHz:120, targetPool:[1,6,9,15,18]},
   ];
   const ROUND_DURATION_RANGE_MS = [15000, 60000]; // 15..60s
   const TARGETS_PER_ROUND = 6;
   const TARGET_FIRST_MS   = [3000,5000];
   const TARGET_GAP_MS     = [7000,11000];
+
+  // RSVP perceptual suppression
+  const SHOW_FRAMES = 1;          // show digit for 1 frame
+  const MASK_FRAMES = 5;          // then mask for N frames (metacontrast + noise)
+  const DIGIT_BLUR_PX = 2.4;      // canvas blur to smear the glyph
+  const DIGIT_ALPHA = 0.13;       // lower contrast
+  const DIGIT_JITTER_PX = 2;      // small jitter to avoid steady fixation
+  const RING_RADIUS = 42;         // metacontrast ring radius
+  const NOISE_DENSITY = 22;       // number of short noise strokes per mask frame
 
   // Keys
   const YES_KEY   = "KeyF";           // recognition: Yes
@@ -72,10 +83,6 @@
   const LABELS_CONC_5 = ["1 · Extremely","2 · Very","3 · Moderately","4 · Slightly","5 · Not at all"];
   const LABELS_LOST_5 = ["1 · Not at all","2 · Slightly","3 · Somewhat","4 · Mostly","5 · Completely"];
 
-  // Perceptual speed-up settings for RSVP
-  const MASK_BLANK_PROB = 0.72;             // higher blank chance makes stream harder to parse
-  const RSVP_FLASH_MS   = 7;                // micro-visibility window (approx; browser-timed)
-
   // ===== STATE =====
   const S = {
     pid: "",
@@ -83,9 +90,9 @@
     rafId: 0, keyHandler: null, keyTimeout: null,
     roundStart: 0, endAt: 0, nextBeatAt: 0, beatInterval: 600,
     nextRSVPAt: 0, rsvpInterval: 40,
-    lastDigit: "", lastShownAt: 0,
+    currentDigit: "", phaseFrame: 0,
     targets: [],
-    rsvpShown: new Array(21).fill(0), // digits 1..20 seen (index 0 unused)
+    rsvpShown: new Array(21).fill(0), // digits 1..20 seen
     transitioning: false,
     roundMeta: {},
     log: [],
@@ -101,7 +108,7 @@
   const screen = document.getElementById('screen');
   const html   = (s,...v)=> s.map((x,i)=> x + (v[i]??'')).join('');
 
-  // Prevent page scroll on Space/digits while we're capturing keys
+  // Prevent page scroll on keys while capturing
   window.addEventListener('keydown', (e)=>{
     const block = ["Space","KeyF","KeyJ","Digit1","Digit2","Digit3","Digit4","Digit5"];
     if (typeof S.keyHandler==='function' && block.includes(e.code)) e.preventDefault();
@@ -154,8 +161,11 @@
     cancelLoop(); clearKeyHandler(); S.phase='intro';
     screen.innerHTML = html`
       <h1>Tap the dot in rhythm</h1>
-      <p>Press <strong>SPACE</strong> whenever the dot flashes. Keep your eyes on the dot and play naturally; numbers will also flash above the dot. After each round, you'll answer a few quick questions.</p>
-      <div class="layout"><div class="rsvp">17</div><div class="dot" id="dot"></div></div>
+      <p>Press <strong>SPACE</strong> when the dot flashes. Numbers will flash above the dot extremely briefly. After each round, you'll answer a few quick questions.</p>
+      <div class="layout">
+        <canvas id="rsvpCanvas" width="1440" height="320"></canvas>
+        <div class="dot" id="dot"></div>
+      </div>
       <div class="center"><button class="btn" id="start">Start</button></div>`;
     document.getElementById('start').onclick = ()=> startNextRound();
   }
@@ -164,11 +174,11 @@
     if (S.transitioning) return;
     S.transitioning = true;
     S.roundIndex++;
-    if (S.roundIndex>=ROUNDS.length) { demographics(); return; } // <<< go to survey before finish
+    if (S.roundIndex>=ROUNDS.length) { demographics(); return; }
     setTimeout(()=>{ S.transitioning=false; runRound(ROUNDS[S.roundIndex]); }, 0);
   }
 
-  // ===== RUN ROUND =====
+  // ===== RUN ROUND (Canvas-based RSVP) =====
   function runRound(cfg){
     cancelLoop(); clearKeyHandler(); S.phase='round';
     S.roundStart = now();
@@ -177,14 +187,13 @@
 
     S.beatInterval = 60000/cfg.bpm;
     S.nextBeatAt   = S.roundStart + S.beatInterval;
-    // push interval aggressively low; rAF will cap drawing but we’ll micro-flash within frames
-    S.rsvpInterval = Math.max(4, Math.round(1000/cfg.rsvpHz)); // try down to ~4ms (~250 Hz timing)
+    S.rsvpInterval = Math.max(8, Math.round(1000/cfg.rsvpHz)); // timing trigger for new digit (not drawing)
     S.nextRSVPAt   = S.roundStart + S.rsvpInterval;
 
     S.targets     = scheduleTargets(runDuration, cfg.targetPool);
-    S.rsvpShown   = new Array(21).fill(0); // 1..20
-    S.lastDigit   = "";
-    S.lastShownAt = 0;
+    S.rsvpShown   = new Array(21).fill(0);
+    S.currentDigit = "";
+    S.phaseFrame = 0;
 
     S.log.push({pid:S.pid, type:'ROUND_START', round:S.roundIndex, roundName:cfg.name, ts:0,
                 bpm:cfg.bpm, rsvpHz:cfg.rsvpHz, plannedMs:runDuration});
@@ -194,14 +203,64 @@
         <div class="pill">${cfg.name}</div>
         <div class="hint">Press SPACE</div>
       </div>
-      <div class="layout"><div id="rsvp" class="rsvp"></div><div id="dot" class="dot"></div></div>`;
-    const dot   = document.getElementById('dot');
-    const elRSV = document.getElementById('rsvp');
+      <div class="layout">
+        <canvas id="rsvpCanvas" width="1440" height="320"></canvas>
+        <div id="dot" class="dot"></div>
+      </div>`;
+    const dot = document.getElementById('dot');
+    const canvas = document.getElementById('rsvpCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // canvas drawing parameters
+    const cw = canvas.width, ch = canvas.height;
+    const centerX = cw/2, baselineY = ch/2 + 40; // big type baseline
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '220px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
 
     setKeyHandler(["Space"], 0, ()=>{
       const t = now();
       S.log.push({pid:S.pid, type:'TAP', round:S.roundIndex, roundName:cfg.name, ts:Math.round(t-S.roundStart)});
     });
+
+    function drawMask(){
+      // Metacontrast ring (annular mask) around where digit appears
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = '#374151';
+      ctx.beginPath();
+      ctx.arc(centerX, baselineY - 150, RING_RADIUS, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+
+      // Short noise strokes near the locus
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.strokeStyle = '#111827';
+      for (let i=0;i<NOISE_DENSITY;i++){
+        const rx = centerX + (Math.random()*220-110);
+        const ry = baselineY - 150 + (Math.random()*120-60);
+        const len = Math.random()*18+6;
+        const ang = Math.random()*Math.PI*2;
+        ctx.beginPath();
+        ctx.moveTo(rx, ry);
+        ctx.lineTo(rx + Math.cos(ang)*len, ry + Math.sin(ang)*len);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawDigit(d){
+      const jx = (Math.random()*2*DIGIT_JITTER_PX - DIGIT_JITTER_PX);
+      const jy = (Math.random()*2*DIGIT_JITTER_PX - DIGIT_JITTER_PX);
+      ctx.save();
+      ctx.filter = `blur(${DIGIT_BLUR_PX}px)`;
+      ctx.globalAlpha = DIGIT_ALPHA;
+      ctx.fillStyle = '#1f2937';
+      ctx.fillText(String(d), centerX + jx, baselineY + jy);
+      ctx.restore();
+    }
 
     function loop(){
       const t = now();
@@ -218,7 +277,7 @@
         S.log.push({pid:S.pid, type:'BEAT', round:S.roundIndex, roundName:cfg.name, ts:Math.round(t-S.roundStart)});
       }
 
-      // RSVP digits: drive at high cadence; micro-show + mask to reduce legibility
+      // Schedule a NEW digit at rsvpInterval ticks; log once per new digit
       while (t>=S.nextRSVPAt){
         S.nextRSVPAt += S.rsvpInterval;
 
@@ -233,24 +292,20 @@
         }
 
         S.rsvpShown[digit] = 1;
-        S.lastDigit = String(digit);
-        S.lastShownAt = t;
-        // micro-visibility: set, then quickly blank
-        if (Math.random() >= MASK_BLANK_PROB) {
-          elRSV.textContent = S.lastDigit;
-          // micro flash window
-          const stamp = S.lastShownAt;
-          setTimeout(()=>{
-            // only clear if we haven't moved on to a newer digit
-            if (S.lastShownAt === stamp) elRSV.textContent = "";
-          }, RSVP_FLASH_MS);
-        } else {
-          elRSV.textContent = ""; // masked this "frame"
-        }
-
+        S.currentDigit = digit;
+        S.phaseFrame = 0; // restart micro-flash cycle
         S.log.push({pid:S.pid, type:'RSVP', round:S.roundIndex, roundName:cfg.name,
                     ts:Math.round(elapsed), digit});
       }
+
+      // DRAW: 1 frame show, then multiple mask frames
+      ctx.clearRect(0,0,cw,ch);
+      if (S.phaseFrame < SHOW_FRAMES && S.currentDigit){
+        drawDigit(S.currentDigit);
+      } else {
+        drawMask();
+      }
+      S.phaseFrame = (S.phaseFrame + 1) % (SHOW_FRAMES + MASK_FRAMES);
 
       S.rafId = requestAnimationFrame(loop);
     }
@@ -262,7 +317,6 @@
     const nTargetsShown = new Set(S.targets.filter(t=>t.shown).map(t=>t.digit)).size;
     S.roundMeta[S.roundIndex] = { nTargetsShown };
     S.log.push({pid:S.pid, type:'ROUND_META', round:S.roundIndex, roundName:cfg.name, nTargetsShown});
-
     S.log.push({pid:S.pid, type:'ROUND_END', round:S.roundIndex, roundName:cfg.name,
                 ts:Math.round(now()-S.roundStart)});
 
@@ -300,7 +354,7 @@
     });
   }
 
-  // ===== Likert UI (Confidence, Concentration [reversed], Lost-time) =====
+  // ===== Likert UI =====
   function askLikert(title, labels, keyset, logType, valueField, next){
     cancelLoop(); clearKeyHandler();
     screen.innerHTML = html`
@@ -320,7 +374,7 @@
     });
   }
 
-  // Order: Confidence → Concentration (reversed labels) → Lost-time → Time 2AFC
+  // Order: Confidence → Concentration → Lost-time → Time 2AFC
   function afterRoundSequence(cfg, runDuration){
     askLikert("Confidence (1..5)", LABELS_CONF_5, LIKERT5, "CONF", "confidence", ()=> {
       askLikert("How concentrated were you? (1..5)", LABELS_CONC_5, LIKERT5, "FLOW_CONC", "concentration", ()=> {
@@ -331,15 +385,12 @@
     });
   }
 
-  // ===== TIME 2AFC (foil differs by ≥ 15s) =====
+  // ===== TIME 2AFC =====
   function timeTwoAFC(cfg, runDuration){
     cancelLoop(); clearKeyHandler();
     const actualSec = Math.round(runDuration/1000);
-
     const DELTAS = [15,16,18,20,22,25,30,35,40,45];
-    let delta = sample(DELTAS);
-    if (Math.random()<0.5) delta = -delta;
-
+    let delta = sample(DELTAS); if (Math.random()<0.5) delta = -delta;
     let foilSec = actualSec + delta;
     foilSec = Math.max(15, Math.min(60, foilSec));
     if (Math.abs(foilSec - actualSec) < 15){
@@ -375,7 +426,7 @@
     });
   }
 
-  // ===== DEMOGRAPHICS (NEW) =====
+  // ===== DEMOGRAPHICS =====
   function demographics(){
     cancelLoop(); clearKeyHandler(); S.phase='demo';
     screen.innerHTML = html`
@@ -424,13 +475,10 @@
         const extra = raceOther.value.trim();
         race = extra ? 'Other: '+extra : 'Other';
       }
-
-      // simple validation
       if (!gender || !age || !race){
         alert("Please answer Gender, Age, and Race to continue.");
         return;
       }
-
       S.demo = { gender, age, race };
       S.log.push({ pid:S.pid, type:'DEMO', gender, age, race });
       finish();
@@ -441,7 +489,6 @@
   function finish(){
     cancelLoop(); clearKeyHandler();
 
-    // 1) Events CSV (full detail for analysis) + demographics columns
     const cols = ["pid","round","roundName","type","ts","digit","probe_digit","is_target","resp_yes","correct","confidence","concentration","lost_time","seconds","bpm","rsvpHz","plannedMs","left","right","leftIsCorrect","choice_left","chosen","demo_gender","demo_age","demo_race"];
     const lines = [cols.join(",")];
     for (const r of S.log){
@@ -478,7 +525,6 @@
     const urlEvents = URL.createObjectURL(new Blob([csvEvents],{type:'text/csv'}));
     const fnameEvents = `flow_rsvp_events_${S.pid||'anon'}.csv`;
 
-    // 2) Round Summary CSV (clean) + demographics columns
     const sumCols = [
       "participant_id","round_index","round_name",
       "planned_duration_seconds","actual_duration_seconds",
@@ -490,7 +536,6 @@
       "demo_gender","demo_age","demo_race"
     ];
     const sumLines = [sumCols.join(",")];
-
     const allRounds = Array.from(new Set(S.log.map(x=>x.round))).filter(r=>r!==undefined && r!==null);
     for (const rIdx of allRounds){
       const rows = S.log.filter(x=>x.round===rIdx);
@@ -552,3 +597,4 @@
 </script>
 </body>
 </html>
+
