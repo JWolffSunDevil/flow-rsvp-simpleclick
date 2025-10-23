@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Flow Tapper + Peripheral RSVP (Ultra-Fast, Lower Contrast)</title>
+<title>Flow Tapper + Peripheral RSVP (Ultra-Fast, Low-Contrast)</title>
 <style>
   :root {
     --bg:#ffffff; --fg:#0f1720; --muted:#4b5563; --accent:#0b5fff;
     --border:#e5e7eb; --pill:#111827; --pill-border:#cbd5e1;
-    /* Lower this to move digits closer to the dot */
+    /* lower this to move digits even closer to the dot */
     --rsvp-offset: 90px;
   }
   html,body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg);
@@ -26,14 +26,14 @@
     position:relative; height:60vh; min-height:420px; display:flex; align-items:center; justify-content:center;
     border:1px dashed var(--pill-border); border-radius:16px; margin:20px 0; background:#fff;
   }
-  /* Gray RSVP box with digit drawn by canvas */
+  /* Gray RSVP box; digits/masks are drawn to a canvas inside */
   .rsvp-wrap {
     position:absolute;
     bottom:calc(50% + var(--rsvp-offset));
     left:50%;
     transform:translateX(-50%);
     width:360px; height:140px;
-    background:#cfd1d4;           /* closer to digit gray */
+    background:#cfd1d4;           /* close to digit gray */
     border:1px solid #c9ccd0;
     border-radius:12px;
     box-shadow:inset 0 0 10px rgba(0,0,0,0.05);
@@ -77,14 +77,14 @@
   const TARGET_FIRST_MS   = [3000,5000];
   const TARGET_GAP_MS     = [7000,11000];
 
-  // RSVP micro-flash (harder to read)
+  // RSVP micro-flash — harder to read
   const SHOW_FRAMES = 1;
-  const MASK_FRAMES = 7;       // ↑ more masking
-  const DIGIT_ALPHA = 0.09;    // ↓ lower contrast
-  const DIGIT_JITTER = 2;
-  const DIGIT_BLUR_PX = 3.2;   // ↑ more blur
+  const MASK_FRAMES = 7;        // more mask frames
+  const DIGIT_ALPHA = 0.09;     // lower contrast
+  const DIGIT_JITTER = 2;       // px jitter
+  const DIGIT_BLUR_PX = 3.2;    // more blur
   const RING_RADIUS = 36;
-  const NOISE_STROKES = 30;    // ↑ denser mask
+  const NOISE_STROKES = 30;     // denser mask
   const DIGIT_GRAY = '#7b8085'; // close to box gray
 
   // Keys
@@ -212,6 +212,7 @@
         </div>
         <div id="dot" class="dot"></div>
       </div>`;
+
     const dot   = document.getElementById('dot');
     const canvas = document.getElementById('rsvpCanvas');
     const ctx = canvas.getContext('2d');
@@ -271,16 +272,16 @@
       const t = now();
       if (t>=S.endAt){ cancelLoop(); clearKeyHandler(); return postRound(cfg, runDuration); }
 
-      // jittered beats
+      // jittered beats (FIXED: no leaked vars)
       while (t>=S.nextBeatAt){
         const jitter = 0.35;
-        const factor = 1 + (Math.random()*2-1)*jitter;
+        const factor = 1 + (Math.random()*2 - 1) * jitter;
         S.nextBeatAt = t + S.beatInterval * factor;
         dot.classList.add('flash'); setTimeout(()=>dot.classList.remove('flash'),120);
         S.log.push({pid:S.pid, type:'BEAT', round:S.roundIndex, roundName:cfg.name, ts:Math.round(t-S.roundStart)});
       }
 
-      // new digit
+      // new digit on interval
       while (t>=S.nextRSVPAt){
         S.nextRSVPAt += S.rsvpInterval;
         let digit = randint(1,20);
@@ -498,20 +499,8 @@
     const urlEvents = URL.createObjectURL(new Blob([csvEvents],{type:'text/csv'}));
     const fnameEvents = `flow_rsvp_events_${S.pid||'anon'}.csv`;
 
-    // 2) Wide single-row summary
+    // 2) Wide single-row summary (no duplicate consts)
     const rounds=[0,1,2];
-    const wideCols=[
-      "participant_id","demo_gender","demo_age","demo_race",
-      ...rounds.flatMap(i=>[
-        `r${i+1}_name`,`r${i+1}_planned_sec`,`r${i+1}_actual_sec`,`r${i+1}_bpm`,`r${i+1}_rsvp_hz`,
-        `r${i+1}_taps`,`r${i+1}_beats`,`r${i+1}_targets`,
-        `r${i+1}_probe_digit`,`r${i+1}_probe_is_target`,`r${i+1}_probe_yes`,`r${i+1}_probe_correct`,
-        `r${i+1}_conf`,`r${i+1}_conc`,`r${i+1}_lost`,
-        `r${i+1}_time_left`,`r${i+1}_time_right`,`r${i+1}_time_choice_left`,`r${i+1}_time_chosen`,`r${i+1}_time_correct`
-      ]),
-      "total_actual_sec","total_taps","total_beats","total_targets",
-      "mean_conf","mean_conc","mean_lost","mean_probe_correct","mean_time_correct"
-    ];
     const w={};
     for (const i of rounds){
       const rows = S.log.filter(x=>x.round===i);
@@ -549,15 +538,34 @@
       const nums = arr.map(x=>x===""?null:Number(x)).filter(x=>x!==null && !Number.isNaN(x));
       return nums.length? (nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(3) : "";
     }
+    const wideCols=[
+      "participant_id","demo_gender","demo_age","demo_race",
+      "r1_name","r1_planned_sec","r1_actual_sec","r1_bpm","r1_rsvp_hz","r1_taps","r1_beats","r1_targets","r1_probe_digit","r1_probe_is_target","r1_probe_yes","r1_probe_correct","r1_conf","r1_conc","r1_lost","r1_time_left","r1_time_right","r1_time_choice_left","r1_time_chosen","r1_time_correct",
+      "r2_name","r2_planned_sec","r2_actual_sec","r2_bpm","r2_rsvp_hz","r2_taps","r2_beats","r2_targets","r2_probe_digit","r2_probe_is_target","r2_probe_yes","r2_probe_correct","r2_conf","r2_conc","r2_lost","r2_time_left","r2_time_right","r2_time_choice_left","r2_time_chosen","r2_time_correct",
+      "r3_name","r3_planned_sec","r3_actual_sec","r3_bpm","r3_rsvp_hz","r3_taps","r3_beats","r3_targets","r3_probe_digit","r3_probe_is_target","r3_probe_yes","r3_probe_correct","r3_conf","r3_conc","r3_lost","r3_time_left","r3_time_right","r3_time_choice_left","r3_time_chosen","r3_time_correct",
+      "total_actual_sec","total_taps","total_beats","total_targets","mean_conf","mean_conc","mean_lost","mean_probe_correct","mean_time_correct"
+    ];
     const wideValues=[
       S.pid, S.demo.gender||"", S.demo.age||"", S.demo.race||"",
-      ...rounds.flatMap(i=>[
-        w[`r${i+1}_name`]||"", w[`r${i+1}_planned_sec`]||"", w[`r${i+1}_actual_sec`]||"", w[`r${i+1}_bpm`]||"", w[`r${i+1}_rsvp_hz`]||"",
-        w[`r${i+1}_taps`]||"", w[`r${i+1}_beats`]||"", w[`r${i+1}_targets`]||"",
-        w[`r${i+1}_probe_digit`]||"", w[`r${i+1}_probe_is_target`]||"", w[`r${i+1}_probe_yes`]||"", w[`r${i+1}_probe_correct`]||"",
-        w[`r${i+1}_conf`]||"", w[`r${i+1}_conc`]||"", w[`r${i+1}_lost`]||"",
-        w[`r${i+1}_time_left`]||"", w[`r${i+1}_time_right`]||"", w[`r${i+1}_time_choice_left`]||"", w[`r${i+1}_time_chosen`]||"", w[`r${i+1}_time_correct`]||""
-      ]),
+      // r1
+      w.r1_name||"", w.r1_planned_sec||"", w.r1_actual_sec||"", w.r1_bpm||"", w.r1_rsvp_hz||"",
+      w.r1_taps||"", w.r1_beats||"", w.r1_targets||"",
+      w.r1_probe_digit||"", w.r1_probe_is_target||"", w.r1_probe_yes||"", w.r1_probe_correct||"",
+      w.r1_conf||"", w.r1_conc||"", w.r1_lost||"",
+      w.r1_time_left||"", w.r1_time_right||"", w.r1_time_choice_left||"", w.r1_time_chosen||"", w.r1_time_correct||"",
+      // r2
+      w.r2_name||"", w.r2_planned_sec||"", w.r2_actual_sec||"", w.r2_bpm||"", w.r2_rsvp_hz||"",
+      w.r2_taps||"", w.r2_beats||"", w.r2_targets||"",
+      w.r2_probe_digit||"", w.r2_probe_is_target||"", w.r2_probe_yes||"", w.r2_probe_correct||"",
+      w.r2_conf||"", w.r2_conc||"", w.r2_lost||"",
+      w.r2_time_left||"", w.r2_time_right||"", w.r2_time_choice_left||"", w.r2_time_chosen||"", w.r2_time_correct||"",
+      // r3
+      w.r3_name||"", w.r3_planned_sec||"", w.r3_actual_sec||"", w.r3_bpm||"", w.r3_rsvp_hz||"",
+      w.r3_taps||"", w.r3_beats||"", w.r3_targets||"",
+      w.r3_probe_digit||"", w.r3_probe_is_target||"", w.r3_probe_yes||"", w.r3_probe_correct||"",
+      w.r3_conf||"", w.r3_conc||"", w.r3_lost||"",
+      w.r3_time_left||"", w.r3_time_right||"", w.r3_time_choice_left||"", w.r3_time_chosen||"", w.r3_time_correct||"",
+      // aggregates
       (Number(w.r1_actual_sec||0)+Number(w.r2_actual_sec||0)+Number(w.r3_actual_sec||0)),
       (Number(w.r1_taps||0)+Number(w.r2_taps||0)+Number(w.r3_taps||0)),
       (Number(w.r1_beats||0)+Number(w.r2_beats||0)+Number(w.r3_beats||0)),
@@ -567,13 +575,6 @@
       avg([w.r1_lost,w.r2_lost,w.r3_lost]),
       avg([w.r1_probe_correct,w.r2_probe_correct,w.r3_probe_correct]),
       avg([w.r1_time_correct,w.r2_time_correct,w.r3_time_correct])
-    ];
-    const wideCols=[
-      "participant_id","demo_gender","demo_age","demo_race",
-      "r1_name","r1_planned_sec","r1_actual_sec","r1_bpm","r1_rsvp_hz","r1_taps","r1_beats","r1_targets","r1_probe_digit","r1_probe_is_target","r1_probe_yes","r1_probe_correct","r1_conf","r1_conc","r1_lost","r1_time_left","r1_time_right","r1_time_choice_left","r1_time_chosen","r1_time_correct",
-      "r2_name","r2_planned_sec","r2_actual_sec","r2_bpm","r2_rsvp_hz","r2_taps","r2_beats","r2_targets","r2_probe_digit","r2_probe_is_target","r2_probe_yes","r2_probe_correct","r2_conf","r2_conc","r2_lost","r2_time_left","r2_time_right","r2_time_choice_left","r2_time_chosen","r2_time_correct",
-      "r3_name","r3_planned_sec","r3_actual_sec","r3_bpm","r3_rsvp_hz","r3_taps","r3_beats","r3_targets","r3_probe_digit","r3_probe_is_target","r3_probe_yes","r3_probe_correct","r3_conf","r3_conc","r3_lost","r3_time_left","r3_time_right","r3_time_choice_left","r3_time_chosen","r3_time_correct",
-      "total_actual_sec","total_taps","total_beats","total_targets","mean_conf","mean_conc","mean_lost","mean_probe_correct","mean_time_correct"
     ];
     const wideCsv=[wideCols.join(","), wideValues.join(",")].join("\n");
     const urlWide=URL.createObjectURL(new Blob([wideCsv],{type:'text/csv'}));
